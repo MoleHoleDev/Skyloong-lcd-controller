@@ -72,6 +72,62 @@ class ScreenRenderer:
         # Sci-Fi Radar Animation State
         self.radar_angle = 0.0
 
+        # Mario Retro Game State
+        self.mario_x = 40.0
+        self.mario_y = 176.0
+        self.mario_vx = 0.0
+        self.mario_vy = 0.0
+        self.mario_facing = 1  # 1: right, -1: left
+        self.mario_is_grounded = True
+        self.mario_is_ducking = False
+        self.mario_run_frame = 0
+        self.mario_score = 2400
+        self.mario_coins = 12
+        self.mario_last_key_time = 0.0
+        self.mario_keys_down = set()
+        self.mario_fireballs = []  # list of [x, y, vx, vy, bounces]
+        self.mario_goombas = [
+            {"x": 160.0, "vx": -1.0, "frame": 0, "alive": True, "squash_t": 0},
+            {"x": 260.0, "vx": -0.8, "frame": 0, "alive": True, "squash_t": 0},
+            {"x": 380.0, "vx": -1.0, "frame": 0, "alive": True, "squash_t": 0}
+        ]
+        self.mario_blocks = [
+            {"x": 80, "y": 120, "type": "q", "hit_t": 0, "coins": 3},
+            {"x": 100, "y": 120, "type": "b", "hit_t": 0},
+            {"x": 120, "y": 120, "type": "q", "hit_t": 0, "coins": 1},
+            {"x": 140, "y": 120, "type": "b", "hit_t": 0},
+            {"x": 200, "y": 100, "type": "q", "hit_t": 0, "coins": 5},
+            {"x": 280, "y": 120, "type": "q", "hit_t": 0, "coins": 1},
+        ]
+        self.mario_particles = []  # floating score/coins
+        self.mario_cam_x = 0.0
+        self.mario_last_tick = time.time()
+
+        # DOOM Classic E1M1 Game State
+        self.doom_px = 3.0
+        self.doom_py = 3.0
+        self.doom_angle = 0.0
+        self.doom_health = 100
+        self.doom_armor = 100
+        self.doom_ammo = 48
+        self.doom_kills = 8
+        self.doom_weapon = "shotgun"  # "shotgun", "chaingun", "plasma", "fist"
+        self.doom_fire_timer = 0.0
+        self.doom_recoil = 0.0
+        self.doom_muzzle_flash = False
+        self.doom_face_frame = "normal"  # "normal", "left", "right", "grin", "hurt"
+        self.doom_face_timer = time.time()
+        self.doom_last_key_time = 0.0
+        self.doom_keys_down = set()
+        self.doom_demons = [
+            {"x": 6.5, "y": 3.0, "hp": 40, "alive": True, "hit_t": 0, "type": "imp"},
+            {"x": 5.0, "y": 6.0, "hp": 60, "alive": True, "hit_t": 0, "type": "pinky"},
+            {"x": 8.0, "y": 7.5, "hp": 40, "alive": True, "hit_t": 0, "type": "imp"},
+        ]
+        self.doom_blood_particles = []
+        self.doom_screen_shake = 0.0
+        self.doom_last_tick = time.time()
+
         # Last rendered frame
         self.current_frame: Optional[Image.Image] = None
 
@@ -86,7 +142,11 @@ class ScreenRenderer:
         self.height = config.get("height", 240)
 
         img: Image.Image
-        if mode == "retro_synthwave":
+        if mode == "mario":
+            img = self.render_mario_mode(config, metrics)
+        elif mode == "doom":
+            img = self.render_doom_mode(config, metrics)
+        elif mode == "retro_synthwave":
             img = self.render_retro_synthwave_mode(config, metrics)
         elif mode == "matrix_rain":
             img = self.render_matrix_rain_mode(config, metrics)
@@ -118,6 +178,551 @@ class ScreenRenderer:
             img = self.render_custom_mode(config, metrics)
 
         self.current_frame = img
+        return img
+
+    def handle_key_down(self, key: str):
+        """Processes keyboard input for interactive screens (Mario, Doom)."""
+        key_l = key.lower()
+        now = time.time()
+        
+        # Mario controls
+        self.mario_keys_down.add(key_l)
+        self.mario_last_key_time = now
+        if key_l in ("space", "up", "w", "jump") and self.mario_is_grounded:
+            self.mario_vy = -8.5
+            self.mario_is_grounded = False
+        elif key_l in ("ctrl", "f", "j", "fire"):
+            # Shoot fireball
+            fb_vx = 6.0 if self.mario_facing == 1 else -6.0
+            self.mario_fireballs.append([self.mario_x + (12 * self.mario_facing), self.mario_y - 8, fb_vx, 2.0, 0])
+
+        # DOOM controls
+        self.doom_keys_down.add(key_l)
+        self.doom_last_key_time = now
+        if key_l in ("space", "ctrl", "f", "enter", "shoot"):
+            self._doom_fire_weapon()
+        elif key_l == "1":
+            self.doom_weapon = "fist"
+        elif key_l == "2":
+            self.doom_weapon = "shotgun"
+        elif key_l == "3":
+            self.doom_weapon = "chaingun"
+
+    def handle_key_up(self, key: str):
+        """Releases pressed keys."""
+        key_l = key.lower()
+        self.mario_keys_down.discard(key_l)
+        self.doom_keys_down.discard(key_l)
+
+    def _doom_fire_weapon(self):
+        """Triggers weapon firing animation, sound visualizer, demon damage."""
+        if self.doom_ammo > 0:
+            self.doom_ammo -= 1
+        self.doom_fire_timer = 0.35
+        self.doom_muzzle_flash = True
+        self.doom_recoil = 14.0
+        self.doom_screen_shake = 6.0
+        self.doom_face_frame = "grin"
+        self.doom_face_timer = time.time() + 0.6
+
+        # Check demon hit in center view
+        for demon in self.doom_demons:
+            if demon["alive"]:
+                dx = demon["x"] - self.doom_px
+                dy = demon["y"] - self.doom_py
+                dist = math.hypot(dx, dy)
+                # Angle to demon relative to player angle
+                demon_ang = math.atan2(dy, dx)
+                diff = (demon_ang - self.doom_angle + math.pi) % (2 * math.pi) - math.pi
+                if abs(diff) < 0.4 and dist < 12.0:
+                    demon["hp"] -= 45
+                    demon["hit_t"] = 0.3
+                    # Blood particles
+                    for _ in range(6):
+                        self.doom_blood_particles.append({
+                            "x": 160 + random.randint(-20, 20),
+                            "y": 100 + random.randint(-15, 15),
+                            "vx": random.uniform(-3, 3),
+                            "vy": random.uniform(-4, 2),
+                            "life": 0.4
+                        })
+                    if demon["hp"] <= 0:
+                        demon["alive"] = False
+                        self.doom_kills += 1
+
+    # =============================================================
+    # 0A. SUPER MARIO RETRO HUD & MINI-GAME
+    # =============================================================
+    def render_mario_mode(self, config: Dict[str, Any], metrics: Dict[str, Any]) -> Image.Image:
+        img = Image.new("RGBA", (self.width, self.height), "#5c94fc")
+        draw = ImageDraw.Draw(img)
+
+        now = time.time()
+        dt = min(0.1, max(0.01, now - self.mario_last_tick))
+        self.mario_last_tick = now
+
+        # Controls & AI Autoplay
+        is_idle = (now - self.mario_last_key_time) > 1.5
+        if is_idle:
+            # Autonomous AI Mario
+            self.mario_facing = 1
+            self.mario_vx = 2.4
+            # Look ahead for pipes or Goombas to jump over
+            for g in self.mario_goombas:
+                if g["alive"] and 0 < (g["x"] - self.mario_x) < 45 and self.mario_is_grounded:
+                    self.mario_vy = -8.2
+                    self.mario_is_grounded = False
+                    break
+            # Hit question blocks
+            for blk in self.mario_blocks:
+                if blk["type"] == "q" and blk.get("coins", 0) > 0 and abs(blk["x"] - self.mario_x) < 20 and self.mario_is_grounded:
+                    if random.random() < 0.2:
+                        self.mario_vy = -8.5
+                        self.mario_is_grounded = False
+        else:
+            # Manual Player Controls
+            self.mario_vx = 0.0
+            if "a" in self.mario_keys_down or "left" in self.mario_keys_down:
+                self.mario_vx = -3.6
+                self.mario_facing = -1
+            if "d" in self.mario_keys_down or "right" in self.mario_keys_down:
+                self.mario_vx = 3.6
+                self.mario_facing = 1
+            self.mario_is_ducking = ("s" in self.mario_keys_down or "down" in self.mario_keys_down)
+
+        # Physics & Position Update
+        self.mario_x += self.mario_vx
+        if not self.mario_is_grounded:
+            self.mario_vy += 0.48
+            self.mario_y += self.mario_vy
+
+        # Ground collision
+        ground_y = 196
+        if self.mario_y >= ground_y:
+            self.mario_y = ground_y
+            self.mario_vy = 0.0
+            self.mario_is_grounded = True
+
+        # Wrap around or camera tracking
+        if self.mario_x > 480:
+            self.mario_x = 20
+        elif self.mario_x < 10:
+            self.mario_x = 10
+
+        self.mario_cam_x = max(0, self.mario_x - 120)
+
+        # Draw Background Scenery
+        # Clouds
+        for cx, cy, sz in [(60, 42, 28), (220, 36, 36), (400, 48, 30)]:
+            scx = int(cx - self.mario_cam_x * 0.3)
+            if -50 < scx < self.width + 50:
+                draw.ellipse([scx, cy, scx + sz * 2, cy + sz], fill="#ffffff")
+                draw.ellipse([scx + sz // 2, cy - sz // 3, scx + sz + sz // 2, cy + sz // 2], fill="#ffffff")
+
+        # Green Hills in distance
+        for hx, hy, hr in [(100, 200, 60), (320, 200, 80)]:
+            shx = int(hx - self.mario_cam_x * 0.5)
+            draw.chord([shx - hr, hy - hr, shx + hr, hy + hr], 180, 360, fill="#00a800", outline="#005800", width=2)
+
+        # Warp Pipes
+        for px, ph in [(180, 36), (360, 48)]:
+            spx = int(px - self.mario_cam_x)
+            if -40 < spx < self.width + 40:
+                py = 200 - ph
+                # Pipe body
+                draw.rectangle([spx, py, spx + 32, 200], fill="#00a800", outline="#005800", width=2)
+                draw.rectangle([spx + 4, py, spx + 10, 200], fill="#00e800")
+                # Pipe top lip
+                draw.rectangle([spx - 3, py - 12, spx + 35, py], fill="#00a800", outline="#005800", width=2)
+                draw.rectangle([spx + 2, py - 10, spx + 8, py - 2], fill="#00e800")
+
+        # Blocks (Question & Brick)
+        for blk in self.mario_blocks:
+            sbx = int(blk["x"] - self.mario_cam_x)
+            sby = blk["y"]
+            if -30 < sbx < self.width + 30:
+                if blk["hit_t"] > 0:
+                    sby -= int(math.sin(blk["hit_t"] * math.pi) * 6)
+                    blk["hit_t"] -= dt
+
+                if blk["type"] == "q":
+                    # Question block
+                    has_coins = blk.get("coins", 0) > 0
+                    q_col = "#fca044" if has_coins else "#b87840"
+                    draw.rectangle([sbx, sby, sbx + 18, sby + 18], fill=q_col, outline="#000000", width=1)
+                    draw.rectangle([sbx + 2, sby + 2, sbx + 16, sby + 16], outline="#ffffff" if has_coins else "#5c3818", width=1)
+                    if has_coins:
+                        f_q = get_font(12, bold=True)
+                        draw.text((sbx + 5, sby + 1), "?", fill="#000000", font=f_q)
+                else:
+                    # Brick block
+                    draw.rectangle([sbx, sby, sbx + 18, sby + 18], fill="#c84c0c", outline="#000000", width=1)
+                    draw.line([sbx, sby + 9, sbx + 18, sby + 9], fill="#000000", width=1)
+                    draw.line([sbx + 9, sby, sbx + 9, sby + 9], fill="#000000", width=1)
+                    draw.line([sbx + 4, sby + 9, sbx + 4, sby + 18], fill="#000000", width=1)
+                    draw.line([sbx + 13, sby + 9, sbx + 13, sby + 18], fill="#000000", width=1)
+
+                # Collision check: Mario hitting from below
+                if not self.mario_is_grounded and self.mario_vy < 0:
+                    if abs(self.mario_x - blk["x"]) < 14 and abs((self.mario_y - 24) - (sby + 18)) < 8:
+                        self.mario_vy = 1.5
+                        blk["hit_t"] = 0.25
+                        if blk["type"] == "q" and blk.get("coins", 0) > 0:
+                            blk["coins"] -= 1
+                            self.mario_coins += 1
+                            self.mario_score += 100
+                            self.mario_particles.append({"x": sbx + 9, "y": sby - 12, "vy": -3.5, "txt": "🪙 +100", "life": 0.6})
+
+        # Goombas update & draw
+        for g in self.mario_goombas:
+            if g["alive"]:
+                g["x"] += g["vx"]
+                if g["x"] < 100 or g["x"] > 460:
+                    g["vx"] *= -1
+                g["frame"] = (g["frame"] + 1) % 20
+
+                gx = int(g["x"] - self.mario_cam_x)
+                gy = 196 - 16
+                if -20 < gx < self.width + 20:
+                    # Body / Mushroom head
+                    draw.chord([gx, gy, gx + 16, gy + 14], 180, 360, fill="#a84000", outline="#000000", width=1)
+                    # Face / Stem
+                    draw.rectangle([gx + 3, gy + 7, gx + 13, gy + 15], fill="#fce0a8", outline="#000000", width=1)
+                    # Eyes
+                    draw.line([gx + 5, gy + 8, gx + 6, gy + 11], fill="#000000", width=1)
+                    draw.line([gx + 10, gy + 8, gx + 11, gy + 11], fill="#000000", width=1)
+                    # Feet
+                    foot_off = 2 if g["frame"] < 10 else 0
+                    draw.rectangle([gx + 1 + foot_off, gy + 14, gx + 7 + foot_off, gy + 17], fill="#000000")
+                    draw.rectangle([gx + 9 - foot_off, gy + 14, gx + 15 - foot_off, gy + 17], fill="#000000")
+
+                # Collision with Mario
+                if abs(self.mario_x - g["x"]) < 14 and abs(self.mario_y - 196) < 18:
+                    if self.mario_vy > 0 and self.mario_y < 192:
+                        # Stomp Goomba!
+                        g["alive"] = False
+                        g["squash_t"] = 0.5
+                        self.mario_vy = -6.0
+                        self.mario_score += 200
+                        self.mario_particles.append({"x": int(g["x"] - self.mario_cam_x), "y": 180, "vy": -2.5, "txt": "+200", "life": 0.5})
+
+        # Fireballs
+        new_fbs = []
+        for fb in self.mario_fireballs:
+            fb[0] += fb[2]
+            fb[1] += fb[3]
+            fb[3] += 0.35  # gravity
+            if fb[1] >= 196:
+                fb[1] = 196
+                fb[3] = -3.5  # bounce
+                fb[4] += 1
+            if fb[4] < 4 and 0 < fb[0] - self.mario_cam_x < self.width:
+                fx = int(fb[0] - self.mario_cam_x)
+                fy = int(fb[1])
+                draw.ellipse([fx - 4, fy - 4, fx + 4, fy + 4], fill="#ff4500", outline="#ffff00", width=1)
+                # Check hit goomba
+                hit = False
+                for g in self.mario_goombas:
+                    if g["alive"] and abs(fb[0] - g["x"]) < 14:
+                        g["alive"] = False
+                        self.mario_score += 200
+                        hit = True
+                        break
+                if not hit:
+                    new_fbs.append(fb)
+        self.mario_fireballs = new_fbs
+
+        # Floating score particles
+        new_parts = []
+        for p in self.mario_particles:
+            p["y"] += p["vy"]
+            p["life"] -= dt
+            if p["life"] > 0:
+                f_p = get_font(10, bold=True)
+                draw.text((p["x"], p["y"]), p["txt"], fill="#ffffff", font=f_p)
+                new_parts.append(p)
+        self.mario_particles = new_parts
+
+        # Draw Mario Sprite (16x24 pixel art)
+        mx = int(self.mario_x - self.mario_cam_x)
+        my = int(self.mario_y - 24)
+
+        # Cap
+        draw.rectangle([mx + 3, my, mx + 13, my + 5], fill="#d82800")
+        draw.rectangle([mx + (7 if self.mario_facing == 1 else 1), my + 3, mx + (15 if self.mario_facing == 1 else 9), my + 5], fill="#d82800")
+        # Face / Skin
+        draw.rectangle([mx + 3, my + 5, mx + 13, my + 11], fill="#fce0a8")
+        # Hair / Mustache
+        draw.rectangle([mx + (9 if self.mario_facing == 1 else 3), my + 8, mx + (14 if self.mario_facing == 1 else 8), my + 11], fill="#000000")
+        # Eye
+        draw.rectangle([mx + (10 if self.mario_facing == 1 else 5), my + 6, mx + (11 if self.mario_facing == 1 else 6), my + 8], fill="#000000")
+        # Overalls & Shirt
+        draw.rectangle([mx + 3, my + 11, mx + 13, my + 18], fill="#0058f8")
+        draw.rectangle([mx + 1, my + 12, mx + 4, my + 16], fill="#d82800")
+        draw.rectangle([mx + 12, my + 12, mx + 15, my + 16], fill="#d82800")
+        # Shoes
+        if self.mario_is_ducking:
+            draw.rectangle([mx + 1, my + 18, mx + 15, my + 24], fill="#684400")
+        elif not self.mario_is_grounded:
+            draw.rectangle([mx + 1, my + 18, mx + 6, my + 23], fill="#684400")
+            draw.rectangle([mx + 10, my + 16, mx + 15, my + 21], fill="#684400")
+        else:
+            step = int((self.mario_x // 8) % 3)
+            if step == 0:
+                draw.rectangle([mx + 2, my + 18, mx + 7, my + 24], fill="#684400")
+                draw.rectangle([mx + 9, my + 18, mx + 14, my + 24], fill="#684400")
+            else:
+                draw.rectangle([mx, my + 18, mx + 6, my + 23], fill="#684400")
+                draw.rectangle([mx + 10, my + 18, mx + 16, my + 23], fill="#684400")
+
+        # Ground Tiles (Bottom 44 px)
+        for gx in range(0, self.width + 20, 16):
+            # Grass top
+            draw.rectangle([gx, 200, gx + 16, 204], fill="#00a800", outline="#005800", width=1)
+            # Dirt Body
+            draw.rectangle([gx, 204, gx + 16, self.height], fill="#d86800", outline="#000000", width=1)
+            draw.line([gx + 8, 204, gx + 8, self.height], fill="#a84000", width=1)
+            draw.line([gx, 218, gx + 16, 218], fill="#a84000", width=1)
+
+        # Classic Top Arcade Telemetry HUD Bar
+        draw.rectangle([0, 0, self.width, 28], fill="#000000")
+        f_hud = get_font(10, bold=True)
+        f_hud_val = get_font(10, bold=False)
+
+        cpu = metrics.get('cpu_percent', 0.0)
+        ram = metrics.get('ram_percent', 0.0)
+        now_dt = datetime.now()
+
+        # Labels
+        draw.text((12, 3), "MARIO", fill="#ffffff", font=f_hud)
+        draw.text((85, 3), "COINS", fill="#ffffff", font=f_hud)
+        draw.text((150, 3), "CPU", fill="#38bdf8", font=f_hud)
+        draw.text((210, 3), "RAM", fill="#d946ef", font=f_hud)
+        draw.text((270, 3), "TIME", fill="#ffffff", font=f_hud)
+
+        # Values
+        draw.text((12, 14), f"{self.mario_score:06d}", fill="#ffffff", font=f_hud_val)
+        draw.text((85, 14), f"🪙 x{self.mario_coins:02d}", fill="#f59e0b", font=f_hud_val)
+        draw.text((150, 14), f"{cpu:.0f}%", fill="#38bdf8", font=f_hud_val)
+        draw.text((210, 14), f"{ram:.0f}%", fill="#d946ef", font=f_hud_val)
+        draw.text((270, 14), now_dt.strftime("%H:%M"), fill="#ffffff", font=f_hud_val)
+
+        return img
+
+    # =============================================================
+    # 0B. DOOM CLASSIC 1993 3D VIEW & STATUS BAR HUD
+    # =============================================================
+    def render_doom_mode(self, config: Dict[str, Any], metrics: Dict[str, Any]) -> Image.Image:
+        img = Image.new("RGBA", (self.width, self.height), "#0a0a0a")
+        draw = ImageDraw.Draw(img)
+
+        now = time.time()
+        dt = min(0.1, max(0.01, now - self.doom_last_tick))
+        self.doom_last_tick = now
+
+        # Handle Timers & Cooldowns
+        if self.doom_fire_timer > 0:
+            self.doom_fire_timer -= dt
+            if self.doom_fire_timer <= 0:
+                self.doom_muzzle_flash = False
+        if self.doom_recoil > 0:
+            self.doom_recoil = max(0.0, self.doom_recoil - dt * 45)
+        if self.doom_screen_shake > 0:
+            self.doom_screen_shake = max(0.0, self.doom_screen_shake - dt * 20)
+
+        # AI Autoplay when idle
+        is_idle = (now - self.doom_last_key_time) > 1.8
+        if is_idle:
+            self.doom_angle += math.sin(now * 1.5) * 0.02
+            # Periodically shoot demons
+            if self.doom_fire_timer <= 0 and random.random() < 0.08:
+                self._doom_fire_weapon()
+        else:
+            # Player controls
+            rot_speed = 2.4 * dt
+            move_speed = 3.5 * dt
+            if "a" in self.doom_keys_down or "left" in self.doom_keys_down:
+                self.doom_angle -= rot_speed
+                self.doom_face_frame = "left"
+            elif "d" in self.doom_keys_down or "right" in self.doom_keys_down:
+                self.doom_angle += rot_speed
+                self.doom_face_frame = "right"
+            else:
+                if now > self.doom_face_timer:
+                    self.doom_face_frame = "normal"
+
+            if "w" in self.doom_keys_down or "up" in self.doom_keys_down:
+                self.doom_px += math.cos(self.doom_angle) * move_speed
+                self.doom_py += math.sin(self.doom_angle) * move_speed
+            if "s" in self.doom_keys_down or "down" in self.doom_keys_down:
+                self.doom_px -= math.cos(self.doom_angle) * move_speed
+                self.doom_py -= math.sin(self.doom_angle) * move_speed
+
+        shake_x = int((random.random() - 0.5) * self.doom_screen_shake)
+        shake_y = int((random.random() - 0.5) * self.doom_screen_shake)
+
+        # 3D Viewport Area: 0 to 184
+        vp_h = 184
+
+        # Ceiling & Toxic Slime / Grate Floor
+        for y in range(0, vp_h // 2):
+            draw.line([0, y, self.width, y], fill="#141416")
+        for y in range(vp_h // 2, vp_h):
+            ratio = (y - vp_h // 2) / (vp_h // 2)
+            # Slime green tint or dark bloody metal
+            r = int(25 + ratio * 20)
+            g = int(45 + ratio * 45)
+            b = int(20 + ratio * 20)
+            draw.line([0, y, self.width, y], fill=(r, g, b))
+
+        # Pseudo-3D Perspective Columns & Walls
+        col_count = 16
+        for c in range(col_count):
+            col_x = c * (self.width // col_count)
+            col_w = self.width // col_count
+            dist = 3.0 + math.sin(c * 0.4 + self.doom_angle) * 1.5
+            wall_h = int(vp_h / max(0.8, dist))
+            top_y = (vp_h - wall_h) // 2 + shake_y
+            bot_y = (vp_h + wall_h) // 2 + shake_y
+
+            # Stone/Metal Wall shading
+            shade = int(max(30, min(180, 220 / dist)))
+            draw.rectangle([col_x, top_y, col_x + col_w, bot_y], fill=(shade, shade // 2, shade // 3), outline="#0a0505", width=1)
+            # Hazard stripes on center pillar
+            if c in (6, 7, 8):
+                for sy in range(top_y, bot_y, 8):
+                    draw.line([col_x, sy, col_x + col_w, sy + 4], fill="#f59e0b", width=2)
+
+        # Demons in 3D Arena
+        for demon in self.doom_demons:
+            if not demon["alive"] and demon["hp"] <= 0:
+                # Dead demon gibs on floor
+                dx = int(160 + math.sin(self.doom_angle) * 80) + shake_x
+                dy = int(140) + shake_y
+                draw.ellipse([dx - 22, dy, dx + 22, dy + 14], fill="#880000", outline="#330000", width=1)
+                continue
+
+            # Living demon sprite
+            dx = int(160 + math.sin(self.doom_angle) * 60) + shake_x
+            dy = int(110) + shake_y
+            dw, dh = 36, 48
+
+            # Imp Body
+            body_col = "#ffffff" if demon.get("hit_t", 0) > 0 else "#8b4513"
+            draw.ellipse([dx - dw // 2, dy - dh // 2, dx + dw // 2, dy + dh // 2], fill=body_col, outline="#330000", width=2)
+            # Horns
+            draw.polygon([(dx - 12, dy - 20), (dx - 18, dy - 32), (dx - 6, dy - 22)], fill="#552211")
+            draw.polygon([(dx + 12, dy - 20), (dx + 18, dy - 32), (dx + 6, dy - 22)], fill="#552211")
+            # Glowing Red Eyes
+            draw.ellipse([dx - 8, dy - 12, dx - 4, dy - 8], fill="#ff0000")
+            draw.ellipse([dx + 4, dy - 12, dx + 8, dy - 8], fill="#ff0000")
+            # Fangs / Mouth
+            draw.polygon([(dx - 6, dy), (dx, dy + 6), (dx + 6, dy)], fill="#ffffff")
+
+            if demon.get("hit_t", 0) > 0:
+                demon["hit_t"] -= dt
+
+        # Blood particles
+        new_blood = []
+        for bp in self.doom_blood_particles:
+            bp["x"] += bp["vx"]
+            bp["y"] += bp["vy"]
+            bp["life"] -= dt
+            if bp["life"] > 0:
+                draw.ellipse([bp["x"] - 2, bp["y"] - 2, bp["x"] + 2, bp["y"] + 2], fill="#cc0000")
+                new_blood.append(bp)
+        self.doom_blood_particles = new_blood
+
+        # Centered Shotgun / Chaingun Sprite
+        gun_cx = self.width // 2 + shake_x
+        gun_y = 135 + int(self.doom_recoil) + shake_y
+
+        # Gun Barrels & Receiver
+        draw.rectangle([gun_cx - 14, gun_y, gun_cx + 14, gun_y + 45], fill="#2b2d30", outline="#111111", width=2)
+        # Double barrel holes
+        draw.ellipse([gun_cx - 10, gun_y - 2, gun_cx - 2, gun_y + 6], fill="#0a0a0a", outline="#666666", width=1)
+        draw.ellipse([gun_cx + 2, gun_y - 2, gun_cx + 10, gun_y + 6], fill="#0a0a0a", outline="#666666", width=1)
+        # Wooden grip / hands
+        draw.rectangle([gun_cx - 18, gun_y + 24, gun_cx - 10, gun_y + 48], fill="#8b4513")
+        draw.rectangle([gun_cx + 10, gun_y + 24, gun_cx + 18, gun_y + 48], fill="#8b4513")
+
+        # Muzzle Flash Explosion
+        if self.doom_muzzle_flash:
+            # Massive bright flash
+            flash_cx = gun_cx
+            flash_cy = gun_y - 12
+            draw.polygon([
+                (flash_cx, flash_cy - 45), (flash_cx + 25, flash_cy - 15),
+                (flash_cx + 45, flash_cy), (flash_cx + 20, flash_cy + 15),
+                (flash_cx, flash_cy + 25), (flash_cx - 20, flash_cy + 15),
+                (flash_cx - 45, flash_cy), (flash_cx - 25, flash_cy - 15)
+            ], fill="#ffff00", outline="#ff4500", width=2)
+            draw.ellipse([flash_cx - 18, flash_cy - 18, flash_cx + 18, flash_cy + 18], fill="#ffffff")
+
+        # =============================================================
+        # DOOM CLASSIC STATUS BAR (Height 56px at bottom)
+        # =============================================================
+        bar_y = 184
+        draw.rectangle([0, bar_y, self.width, self.height], fill="#383d44", outline="#1a1c20", width=2)
+        # Metallic bevels
+        draw.line([0, bar_y, self.width, bar_y], fill="#6a7280", width=2)
+        draw.line([0, self.height - 1, self.width, self.height - 1], fill="#111215", width=1)
+
+        f_doom_big = get_font(18, bold=True)
+        f_doom_lbl = get_font(9, bold=True)
+        f_doom_sm = get_font(10, bold=True)
+
+        # 1. AMMO Panel (Left)
+        draw.rounded_rectangle([8, bar_y + 6, 75, self.height - 6], radius=3, fill="#1c1e22", outline="#4b5563", width=1)
+        draw.text((16, bar_y + 8), "AMMO", fill="#9ca3af", font=f_doom_lbl)
+        draw.text((14, bar_y + 20), f"{self.doom_ammo:03d}", fill="#ef4444", font=f_doom_big)
+
+        # 2. HEALTH Panel
+        draw.rounded_rectangle([80, bar_y + 6, 145, self.height - 6], radius=3, fill="#1c1e22", outline="#4b5563", width=1)
+        draw.text((88, bar_y + 8), "HEALTH", fill="#9ca3af", font=f_doom_lbl)
+        draw.text((86, bar_y + 20), f"{self.doom_health}%", fill="#ef4444", font=f_doom_big)
+
+        # 3. DOOMGUY FACE (Center Portrait)
+        face_x = 150
+        face_y = bar_y + 6
+        draw.rectangle([face_x, face_y, face_x + 40, face_y + 44], fill="#111317", outline="#6b7280", width=2)
+
+        # Hair
+        draw.rectangle([face_x + 6, face_y + 4, face_x + 34, face_y + 12], fill="#4a3525")
+        # Skin Head
+        draw.rectangle([face_x + 8, face_y + 10, face_x + 32, face_y + 36], fill="#e0ac82")
+        # Eyes
+        eye_off = 0
+        if self.doom_face_frame == "left":
+            eye_off = -2
+        elif self.doom_face_frame == "right":
+            eye_off = 2
+
+        draw.rectangle([face_x + 12 + eye_off, face_y + 16, face_x + 16 + eye_off, face_y + 20], fill="#ffffff")
+        draw.rectangle([face_x + 14 + eye_off, face_y + 17, face_x + 16 + eye_off, face_y + 19], fill="#1e3a8a")
+
+        draw.rectangle([face_x + 24 + eye_off, face_y + 16, face_x + 28 + eye_off, face_y + 20], fill="#ffffff")
+        draw.rectangle([face_x + 26 + eye_off, face_y + 17, face_x + 28 + eye_off, face_y + 19], fill="#1e3a8a")
+
+        # Mouth / Grin
+        if self.doom_face_frame == "grin":
+            draw.polygon([(face_x + 14, face_y + 28), (face_x + 20, face_y + 33), (face_x + 26, face_y + 28)], fill="#ffffff")
+        else:
+            draw.line([face_x + 14, face_y + 30, face_x + 26, face_y + 30], fill="#5c2b18", width=2)
+
+        # 4. ARMOR Panel
+        draw.rounded_rectangle([195, bar_y + 6, 255, self.height - 6], radius=3, fill="#1c1e22", outline="#4b5563", width=1)
+        draw.text((202, bar_y + 8), "ARMOR", fill="#9ca3af", font=f_doom_lbl)
+        draw.text((200, bar_y + 20), f"{self.doom_armor}%", fill="#ef4444", font=f_doom_big)
+
+        # 5. Telemetry / Kills (Right)
+        draw.rounded_rectangle([260, bar_y + 6, 315, self.height - 6], radius=3, fill="#1c1e22", outline="#4b5563", width=1)
+        cpu = metrics.get('cpu_percent', 0.0)
+        gpu = metrics.get('gpu_percent', 0.0)
+        draw.text((266, bar_y + 8), f"KILLS: {self.doom_kills}", fill="#fbbf24", font=f_doom_lbl)
+        draw.text((266, bar_y + 20), f"CPU: {cpu:.0f}%", fill="#38bdf8", font=f_doom_sm)
+        draw.text((266, bar_y + 33), f"GPU: {gpu:.0f}%", fill="#10b981", font=f_doom_sm)
+
         return img
 
     # =============================================================

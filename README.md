@@ -4,15 +4,15 @@ Nowoczesna aplikacja graficzna **Python / PySide6 (Qt6)** do kompleksowego zarz�
 
 ---
 
-## 🚀 Nowy, prosty interfejs dwukolumnowy
+## 🚀 Nowy interfejs dwukolumnowy & Kafelki z podglądami
 
-Aplikacja została gruntownie przebudowana z myślą o prostocie, maksymalnej wydajności i komforcie użytkowania:
+Aplikacja została zaprojektowana z myślą o prostocie, maksymalnej wydajności i komforcie użytkowania:
 
-1. **Lewa kolumna (Galeria Ekranów & Podgląd na żywo):**
+1. **Lewa kolumna (Galeria Kafelkowa & Podgląd na żywo):**
    - **Wirtualny ekran LCD 320x240:** wierne odwzorowanie fizycznego wyświetlacza z licznikiem FPS, wskaźnikiem aktywnego trybu i przyciskiem zrzutu ekranu (`PNG`).
-   - **Katalog interaktywnych kart:** 14 gotowych ekranów z filtrowaniem kategorii (*Wszystkie*, *Kreatywne & HUD*, *Telemetria*, *Czas*, *Media*). Kliknięcie karty natychmiast przełącza widok.
-2. **Prawa kolumna (Szczegółowe ustawienia):**
-   - Dedykowany, przejrzysty panel konfiguracji dla aktualnie wybranego ekranu.
+   - **Kafelkowa galeria modułów z miniaturowymi podglądami:** 16 gotowych ekranów w siatce z renderowanymi miniaturami klatek, etykietami statusu (*GRYWALNY*, *NOWOŚĆ*, *POPULARNY*) i filtrami kategorii (*Wszystkie*, *Gry & Retro*, *Efektowne & HUD*, *Telemetria*, *Czas*, *Media*).
+2. **Prawa kolumna (Szczegółowe ustawienia & Kontrolery gier):**
+   - Dedykowany, przejrzysty panel konfiguracji dla aktualnie wybranego ekranu oraz interaktywne panele sterowania grami (D-Pad, przyciski akcji, ściągawka skrótów klawiaturowych).
    - Pasek parametrów strumienia USB: regulacja klatkażu (15 / 30 / 45 / 60 FPS), jakości kompresji JPEG (70–95%) oraz wybór portu `/dev/ttyACM*`.
 3. **Pasek globalny:**
    - Przycisk 1-klik: **`🚀 Rozpocznij / ⏹ Zatrzymaj Strumieniowanie USB`**.
@@ -21,51 +21,63 @@ Aplikacja została gruntownie przebudowana z myślą o prostocie, maksymalnej wy
 
 ---
 
-## 🎨 Katalog 14 Dostępnych Ekranów
+## 🎮 Interaktywne Ekrany Grywalne (Sterowane Klawiaturą)
 
-### ✨ Nowe ekrany kreatywne & HUD
-1. **🌆 Retro Synthwave HUD:**
-   - Animowany, perspektywiczny grid neonowy i retro słońce z poziomymi pasami.
-   - Duży cyberpunkowy zegar cyfrowy, data i wskaźniki obciążenia CPU, GPU, RAM oraz temperatur.
-   - Wybór palet kolorów (*Neon Sunset*, *Cyber Grid*, *Outrun Purple*, *Laser Blue*) i edycja własnego napisu.
-2. **🟢 Matrix Digital Rain:**
-   - Spływający kaskadowo deszcz zielonych znaków Matrix / hex.
-   - Konsola terminala z cyfrowym zegarem czasu rzeczywistego i macierzą zużycia zasobów komputera.
-   - Motywy kolorystyczne: *Classic Green*, *Amber CRT*, *Cyber Cyan*, *Red Alert*.
-3. **🎵 Audio Spectrum & VU Meter:**
-   - 18-pasmowy dynamiczny spektrogram częstotliwości audio ze wskaźnikami wartości szczytowych (*Peak Hold*).
-   - Stereofoniczny podwójny miernik poziomu sygnału (CH-L / CH-R) z podziałem decybelowym (Zielony/Żółty/Czerwony).
-4. **🏎️ Dual Racing Tachometers (Zegary obrotomierza):**
-   - Podwójne analogowe wskaźniki zegarowe dla obciążenia CPU i GPU ze wskazówkami i strefą czerwonego pola (*Redline*).
-   - Środkowy cyfrowy blok odczytu temperatur podzespołów oraz dolny pasek pamięci RAM i dysku NVMe.
-5. **⏱️ Pomodoro & Focus Timer:**
-   - Okrągły wskaźnik postępu sesji głębokiej pracy (*Deep Work - 25 min*) i przerw regeneracyjnych (*Break - 5 min*).
-   - Przyciski Start / Pauza / Reset oraz licznik zrealizowanych rund.
-6. **🚀 Sci-Fi Starship HUD:**
-   - Panel dowodzenia rodem z mostka statku kosmicznego z obrotowym radarem taktycznym (Sweep radar).
-   - Wskaźniki stanu rdzenia reaktora (CPU), silników warp (GPU) i osłon (RAM).
+1. **🍄 Super Mario Retro World & HUD:**
+   - Autentyczny świat 8-bit NES Super Mario World z fizyką skoków, grawitacją, ruchomą kamerą i animacjami.
+   - Pytajnikowe bloki `[?]` z monetami, cegiełki, zielone rury i spacerujące Goomby, które można rozdeptać!
+   - Kule ognia (Fireballs) odbijające się od podłoża i eliminujące wrogów.
+   - Pasek telemetrii w stylu arkadowym: `MARIO SCORE`, `COINS`, `CPU %`, `RAM %`, `TIME`.
+   - **Sterowanie klawiaturą w systemie:**
+     - `A / D` lub `← / →`: Bieg w lewo i prawo
+     - `Spacja / W / ↑`: Skok
+     - `S / ↓`: Kucnięcie
+     - `Ctrl / F / J`: Strzał ognistą kulą
+     - *Tryb Autoplay Demo:* Mario gra automatycznie, gdy przez 1.5s nie naciśniesz klawisza!
+
+2. **💀 DOOM Classic 1993 (E1M1 View & Status Bar HUD):**
+   - Korytarz 3D z perspektywicznymi ścianami, toksyczną mazią, demonami i krwawymi rozbryzgami.
+   - Centralnie umieszczona strzelba (Shotgun / Chaingun) z animacją odrzutu, potężnym błyskiem wystrzału i screenshake.
+   - Oryginalny, kultowy **DOOM Status Bar**:
+     - Liczniki `AMMO`, `HEALTH`, `ARMOR` z klasycznymi czerwonymi cyframi DOOM.
+     - **Animowana twarz Doomgaya:** rozgląda się na boki, szyderczo uśmiecha przy wystrzale i krwawi przy obrażeniach.
+     - Zintegrowane karty telemetrii: `KILLS`, `CPU %`, `GPU %`.
+   - **Sterowanie klawiaturą w systemie:**
+     - `W / S` lub `↑ / ↓`: Ruch w przód / tył
+     - `A / D` lub `← / →`: Obrót kamery
+     - `Spacja / Ctrl / F / Enter`: Strzał z broni
+     - `1 / 2 / 3`: Zmiana broni (Pięści, Shotgun, Chaingun)
+     - *Tryb Autoplay Demo:* Doomguy patroluje i eliminuje demony automatycznie podczas bezczynności!
+
+---
+
+## 🎨 Katalog 16 Dostępnych Ekranów
+
+### 🎮 Gry & Retro
+1. **🍄 Super Mario Retro World** (Grywalny, fizyka, wrogowie, monety, CPU/RAM HUD)
+2. **💀 DOOM Classic 1993** (Grywalny korytarz 3D, strzelba, demony, Doomguy Face Status Bar)
+
+### ✨ Nowe ekrany efektowne & HUD
+3. **🌆 Retro Synthwave HUD** (Grid neonowy, retro słońce, zegar cyberpunk, CPU/GPU/RAM)
+4. **🟢 Matrix Digital Rain** (Deszcz glifów Matrix, cyfrowy terminal zegara i macierz zasobów)
+5. **🎵 Audio Spectrum & VU Meter** (18-pasmowy analizator częstotliwości z Peak Hold i miernik CH-L/R)
+6. **🏎️ Dual Racing Tachometers** (Analogowe zegary obrotomierza dla CPU i GPU oraz temperatury)
+7. **⏱️ Pomodoro & Focus Timer** (Zegar sesji skupienia 25 min i przerw z licznikiem rund)
+8. **🚀 Sci-Fi Starship HUD** (Panel dowodzenia z obrotowym radarem taktycznym i stanem reaktora)
 
 ### 📊 Telemetria i monitoring podzespołów
-7. **🧩 Super Dashboard (Modułowy):**
-   - Dowolne łączenie elementów: zegar, słupki CPU/RAM/GPU, temperatury podzespołów i własne zdjęcie w tle.
-8. **📊 Telemetria PC (Pierścienie Neon):**
-   - Trzy kołowe wskaźniki zegarowe CPU, RAM i GPU z prędkością transferu sieci.
-9. **🌡️ Temperatury Podzespołów (Thermals):**
-   - Szczegółowy monitoring temperatur CPU, GPU i dysku NVMe SSD z 3-stopniowym systemem alertów barwnych.
+9. **🧩 Super Dashboard (Modułowy)** (Zegar, słupki CPU/RAM/GPU, temperatury i własne tło)
+10. **📊 Telemetria Pierścienie** (Kołowe wskaźniki neonowe CPU, RAM, GPU z prędkością sieci)
+11. **🌡️ Temperatury Sprzętu** (Karty temperatur CPU, GPU i NVMe SSD z 3-stopniowym systemem alertów)
 
 ### 🕒 Zegary i Narzędzia
-10. **🕒 Zegary Stylizowane:**
-    - 5 stylów: *Cyberpunk Neon*, *Cyfrowy Modern*, *Retro Zielony LCD (Casio)*, *Minimalistyczny*, *Klasyczny Analogowy*.
-11. **📅 Kalendarz Miesięczny:**
-    - Pełny miesiąc z wyróżnionym dniem dzisiejszym, dniami wolnymi od pracy i zegarem.
+12. **🕒 Zegar Cyfrowy i Analogowy** (5 stylów: Cyberpunk, Retro LCD, Modern, Minimal, Analog)
+13. **📅 Kalendarz Miesięczny** (Pełny miesiąc z wyróżnionym dniem dzisiejszym i zegarem)
 
 ### 🖼️ Multimedia
-12. **🖼️ Zdjęcia i Grafiki:**
-    - Obsługa PNG, JPG, BMP, WebP z dopasowaniem kadru (*Cover*, *Contain*, *Stretch*), jasnością i kontrastem.
-13. **🎞️ Animowany GIF Player:**
-    - Odtwarzanie GIF-ów z suwakiem prędkości klatek (0.25x – 3.0x).
-14. **📋 Pokaz Slajdów:**
-    - Playlisty zdjęć z automatyczną rotacją i trybem losowym (*Shuffle*).
+14. **🖼️ Pojedyncze Zdjęcie** (PNG, JPG, BMP z kadrowaniem, jasnością i kontrastem)
+15. **🎞️ Animowany GIF Player** (Płynne odtwarzanie animacji GIF z regulacją FPS)
+16. **📋 Pokaz Slajdów** (Playlisty zdjęć z automatyczną rotacją i trybem losowym)
 
 ---
 

@@ -20,6 +20,8 @@ from lcd_core.usb_streamer import USBStreamController, USBStreamThread
 
 from ui.widgets.lcd_preview import LCDPreviewWidget
 from ui.widgets.screen_gallery import ScreenGalleryWidget, SCREENS_CATALOG
+from ui.widgets.mario_panel import MarioPanel
+from ui.widgets.doom_panel import DoomPanel
 from ui.widgets.retro_synthwave_panel import RetroSynthwavePanel
 from ui.widgets.matrix_rain_panel import MatrixRainPanel
 from ui.widgets.audio_visualizer_panel import AudioVisualizerPanel
@@ -243,6 +245,18 @@ class MainWindow(QMainWindow):
         self.settings_stack = QStackedWidget()
         self.panels = {}
 
+        # 0A: mario
+        self.panels["mario"] = MarioPanel(self.config_mgr)
+        self.panels["mario"].settings_changed.connect(self.on_settings_modified)
+        self.panels["mario"].key_action.connect(self.on_game_key_action)
+        self.settings_stack.addWidget(self.panels["mario"])
+
+        # 0B: doom
+        self.panels["doom"] = DoomPanel(self.config_mgr)
+        self.panels["doom"].settings_changed.connect(self.on_settings_modified)
+        self.panels["doom"].key_action.connect(self.on_game_key_action)
+        self.settings_stack.addWidget(self.panels["doom"])
+
         # 0: retro_synthwave
         self.panels["retro_synthwave"] = RetroSynthwavePanel(self.config_mgr)
         self.panels["retro_synthwave"].settings_changed.connect(self.on_settings_modified)
@@ -405,6 +419,70 @@ class MainWindow(QMainWindow):
         panel = self.panels.get(mode_id)
         if panel and self.settings_stack.indexOf(panel) >= 0:
             self.settings_stack.setCurrentWidget(panel)
+
+    def on_game_key_action(self, action: str):
+        """Simulates a key press & timed release from GUI control buttons."""
+        self.renderer.handle_key_down(action)
+        QTimer.singleShot(150, lambda: self.renderer.handle_key_up(action))
+
+    def keyPressEvent(self, event):
+        """Captures hardware keyboard inputs and dispatches them to interactive games/screens."""
+        key = event.key()
+        if key in (Qt.Key_Left, Qt.Key_A):
+            self.renderer.handle_key_down("left")
+            self.renderer.handle_key_down("a")
+        elif key in (Qt.Key_Right, Qt.Key_D):
+            self.renderer.handle_key_down("right")
+            self.renderer.handle_key_down("d")
+        elif key in (Qt.Key_Up, Qt.Key_W):
+            self.renderer.handle_key_down("up")
+            self.renderer.handle_key_down("w")
+        elif key in (Qt.Key_Down, Qt.Key_S):
+            self.renderer.handle_key_down("down")
+            self.renderer.handle_key_down("s")
+        elif key == Qt.Key_Space:
+            self.renderer.handle_key_down("space")
+            self.renderer.handle_key_down("jump")
+            self.renderer.handle_key_down("shoot")
+        elif key in (Qt.Key_Control, Qt.Key_F, Qt.Key_J):
+            self.renderer.handle_key_down("fire")
+            self.renderer.handle_key_down("shoot")
+            self.renderer.handle_key_down("ctrl")
+        elif key in (Qt.Key_Return, Qt.Key_Enter):
+            self.renderer.handle_key_down("enter")
+            self.renderer.handle_key_down("shoot")
+        elif key == Qt.Key_1:
+            self.renderer.handle_key_down("1")
+        elif key == Qt.Key_2:
+            self.renderer.handle_key_down("2")
+        elif key == Qt.Key_3:
+            self.renderer.handle_key_down("3")
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        """Releases keys in game engine."""
+        key = event.key()
+        if key in (Qt.Key_Left, Qt.Key_A):
+            self.renderer.handle_key_up("left")
+            self.renderer.handle_key_up("a")
+        elif key in (Qt.Key_Right, Qt.Key_D):
+            self.renderer.handle_key_up("right")
+            self.renderer.handle_key_up("d")
+        elif key in (Qt.Key_Up, Qt.Key_W):
+            self.renderer.handle_key_up("up")
+            self.renderer.handle_key_up("w")
+        elif key in (Qt.Key_Down, Qt.Key_S):
+            self.renderer.handle_key_up("down")
+            self.renderer.handle_key_up("s")
+        elif key == Qt.Key_Space:
+            self.renderer.handle_key_up("space")
+            self.renderer.handle_key_up("jump")
+            self.renderer.handle_key_up("shoot")
+        elif key in (Qt.Key_Control, Qt.Key_F, Qt.Key_J):
+            self.renderer.handle_key_up("fire")
+            self.renderer.handle_key_up("shoot")
+            self.renderer.handle_key_up("ctrl")
+        super().keyReleaseEvent(event)
 
     def on_settings_modified(self):
         """Triggered when any settings panel changes a value."""

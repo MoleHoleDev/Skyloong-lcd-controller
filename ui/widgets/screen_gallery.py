@@ -1,101 +1,126 @@
 import os
+import io
+from typing import Dict, Any, Optional
+from PIL import Image, ImageQt
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QPushButton, QScrollArea, QFrame, QButtonGroup, QLineEdit
+    QPushButton, QScrollArea, QFrame, QButtonGroup, QLineEdit, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QCursor
+from PySide6.QtGui import QFont, QCursor, QPixmap, QImage
+
+from lcd_core.screen_renderer import ScreenRenderer
+from lcd_core.system_monitor import SystemMonitor
 
 SCREENS_CATALOG = [
+    {
+        "id": "mario",
+        "title": "Super Mario Retro",
+        "icon": "🍄",
+        "category": "games",
+        "category_label": "🎮 Gry & Retro",
+        "badge": "GRYWALNY",
+        "desc": "Interaktywny świat 8-bit Mario z fizyką skoków, wrogami, monetami i telemetrią."
+    },
+    {
+        "id": "doom",
+        "title": "DOOM Classic 1993",
+        "icon": "💀",
+        "category": "games",
+        "category_label": "🎮 Gry & Retro",
+        "badge": "GRYWALNY",
+        "desc": "Grywalny korytarz 3D, strzelba, demony i animowany status bar z twarzą Doomgaya."
+    },
     {
         "id": "retro_synthwave",
         "title": "Retro Synthwave HUD",
         "icon": "🌆",
         "category": "creative",
-        "category_label": "✨ Kreatywne & HUD",
+        "category_label": "✨ Efektowne & HUD",
         "badge": "NOWOŚĆ",
-        "desc": "Perspektywiczny neonowy grid, słońce retro, zegar cyberpunk oraz wskaźniki telemetrii CPU/GPU/RAM."
+        "desc": "Perspektywiczny neonowy grid, słońce retro, zegar cyberpunk oraz telemetria."
     },
     {
         "id": "matrix_rain",
         "title": "Matrix Digital Rain",
         "icon": "🟢",
         "category": "creative",
-        "category_label": "✨ Kreatywne & HUD",
+        "category_label": "✨ Efektowne & HUD",
         "badge": "NOWOŚĆ",
-        "desc": "Spływający zielony deszcz glifów Matrix z wbudowaną konsolą zegara i macierzą obciążenia rdzeni."
+        "desc": "Spływający zielony deszcz glifów Matrix z wbudowaną konsolą zegara."
     },
     {
         "id": "audio_visualizer",
-        "title": "Audio Spectrum / VU Meter",
+        "title": "Audio Spectrum / VU",
         "icon": "🎵",
         "category": "creative",
-        "category_label": "✨ Kreatywne & HUD",
+        "category_label": "✨ Efektowne & HUD",
         "badge": "NOWOŚĆ",
-        "desc": "Wielopasmowy analizator widma częstotliwości audio ze wskaźnikami Peak i stereofonicznym VU Meter L/R."
+        "desc": "Wielopasmowy analizator widma częstotliwości audio ze wskaźnikami Peak."
     },
     {
         "id": "dual_gauges",
-        "title": "Dual Racing Tachometers",
+        "title": "Dual Tachometers",
         "icon": "🏎️",
         "category": "telemetry",
         "category_label": "📊 Telemetria",
         "badge": "NOWOŚĆ",
-        "desc": "Podwójne analogowe zegary obrotomierza dla CPU i GPU, cyfrowy odczyt temperatur i pasek NVMe/RAM."
+        "desc": "Podwójne analogowe zegary obrotomierza dla CPU i GPU oraz temperatury."
     },
     {
         "id": "pomodoro",
-        "title": "Pomodoro & Focus Timer",
+        "title": "Pomodoro Focus Timer",
         "icon": "⏱️",
         "category": "tools",
         "category_label": "🕒 Czas & Narzędzia",
         "badge": "NOWOŚĆ",
-        "desc": "Okrągły zegar sesji głębokiego skupienia (25 min) i przerw regeneracyjnych z licznikiem rund."
+        "desc": "Okrągły zegar sesji skupienia (25 min) i przerw z licznikiem rund."
     },
     {
         "id": "scifi_terminal",
         "title": "Sci-Fi Starship HUD",
         "icon": "🚀",
         "category": "creative",
-        "category_label": "✨ Kreatywne & HUD",
+        "category_label": "✨ Efektowne & HUD",
         "badge": "NOWOŚĆ",
-        "desc": "Futurystyczny panel dowodzenia z obrotowym radarem taktycznym, stanem reaktora i diagnostyką."
+        "desc": "Panel dowodzenia z obrotowym radarem taktycznym i stanem reaktora."
     },
     {
         "id": "custom",
-        "title": "Super Dashboard (Modułowy)",
+        "title": "Super Dashboard",
         "icon": "🧩",
         "category": "telemetry",
         "category_label": "📊 Telemetria",
         "badge": "POPULARNY",
-        "desc": "W pełni modyfikowalny pulpit hybrydowy: zegar, słupki CPU/RAM/GPU, temperatury i własna tapeta."
+        "desc": "Modyfikowalny pulpit hybrydowy: zegar, słupki CPU/RAM/GPU i tapeta."
     },
     {
         "id": "usage",
-        "title": "Telemetria PC (Pierścienie)",
+        "title": "Telemetria Pierścienie",
         "icon": "📊",
         "category": "telemetry",
         "category_label": "📊 Telemetria",
         "badge": "",
-        "desc": "Trzy neonowe pierścienie obciążenia CPU, pamięci RAM i karty graficznej z prędkością sieci."
+        "desc": "Trzy neonowe pierścienie obciążenia CPU, RAM i GPU z prędkością sieci."
     },
     {
         "id": "temperatures",
-        "title": "Temperatury Podzespołów",
+        "title": "Temperatury Sprzętu",
         "icon": "🌡️",
         "category": "telemetry",
         "category_label": "📊 Telemetria",
         "badge": "",
-        "desc": "Karty temperatur procesora, karty graficznej oraz dysku NVMe SSD z 3-stopniowym systemem alertów."
+        "desc": "Karty temperatur procesora, karty graficznej oraz dysku NVMe SSD."
     },
     {
         "id": "clock",
-        "title": "Zegar Cyfrowy i Analogowy",
+        "title": "Zegar Cyfrowy / Analog",
         "icon": "🕒",
         "category": "tools",
         "category_label": "🕒 Czas & Narzędzia",
         "badge": "",
-        "desc": "5 unikalnych stylów zegara: Cyberpunk Neon, Retro Zielony LCD, Cyfrowy Modern, Minimal, Analog."
+        "desc": "5 unikalnych stylów zegara: Cyberpunk, Retro LCD, Modern, Analog."
     },
     {
         "id": "calendar",
@@ -104,16 +129,16 @@ SCREENS_CATALOG = [
         "category": "tools",
         "category_label": "🕒 Czas & Narzędzia",
         "badge": "",
-        "desc": "Podgląd całego bieżącego miesiąca, wyróżniony dzień dzisiejszy, weekendy i zegar w nagłówku."
+        "desc": "Podgląd całego bieżącego miesiąca, wyróżniony dzień dzisiejszy i weekendy."
     },
     {
         "id": "image",
-        "title": "Pojedyncze Zdjęcie / Tapeta",
+        "title": "Pojedyncze Zdjęcie",
         "icon": "🖼️",
         "category": "media",
         "category_label": "🖼️ Media & Grafika",
         "badge": "",
-        "desc": "Wyświetlanie grafik (PNG, JPG, BMP) z opcjami dopasowania kadru, jasności i kontrastu."
+        "desc": "Wyświetlanie grafik (PNG, JPG, BMP) z opcjami dopasowania kadru."
     },
     {
         "id": "gif",
@@ -131,12 +156,55 @@ SCREENS_CATALOG = [
         "category": "media",
         "category_label": "🖼️ Media & Grafika",
         "badge": "",
-        "desc": "Rotacja wybranych zdjęć z playlisty z konfigurowalnym czasem przejścia i trybem losowym."
+        "desc": "Rotacja wybranych zdjęć z playlisty z czasem przejścia i trybem losowym."
     }
 ]
 
-class ScreenCardWidget(QFrame):
-    """Interactive card representing a selectable screen mode in the gallery."""
+# Static Preview Thumbnail Cache
+_THUMBNAIL_CACHE: Dict[str, QPixmap] = {}
+
+def get_screen_thumbnail(screen_id: str) -> QPixmap:
+    """Renders or retrieves a high-quality 140x105 miniature preview for a screen mode."""
+    if screen_id in _THUMBNAIL_CACHE:
+        return _THUMBNAIL_CACHE[screen_id]
+
+    try:
+        renderer = ScreenRenderer(320, 240)
+        metrics = {
+            "cpu_percent": 42.0,
+            "ram_percent": 58.0,
+            "gpu_percent": 65.0,
+            "cpu_temp": 48.0,
+            "gpu_temp": 54.0,
+            "nvme_temp": 41.0,
+            "net_download_speed": 12.5,
+            "net_upload_speed": 4.2
+        }
+        cfg = {"current_mode": screen_id, "width": 320, "height": 240}
+        pil_img = renderer.render(cfg, metrics)
+
+        # Scale down to 140x105 thumbnail
+        thumb_pil = pil_img.resize((140, 105), Image.Resampling.BILINEAR)
+        
+        # Convert to QPixmap
+        data = thumb_pil.convert("RGBA").tobytes("raw", "RGBA")
+        qimg = QImage(data, 140, 105, QImage.Format_RGBA8888)
+        pix = QPixmap.fromImage(qimg)
+        _THUMBNAIL_CACHE[screen_id] = pix
+        return pix
+    except Exception:
+        # Fallback empty pixmap
+        pix = QPixmap(140, 105)
+        pix.fill(Qt.darkGray)
+        _THUMBNAIL_CACHE[screen_id] = pix
+        return pix
+
+
+class ScreenTileWidget(QFrame):
+    """
+    Rich interactive tile card featuring a live/rendered thumbnail preview,
+    title, icon, status badges, and compact description.
+    """
     clicked = Signal(str)
 
     def __init__(self, screen_data: dict, is_selected: bool = False):
@@ -145,45 +213,63 @@ class ScreenCardWidget(QFrame):
         self.screen_id = screen_data["id"]
         self.is_selected = is_selected
         self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.setup_ui()
         self.update_style()
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        # Top row: Icon + Title + Badge
-        top_row = QHBoxLayout()
-        top_row.setSpacing(8)
+        # 1. Thumbnail Container Frame
+        thumb_container = QFrame()
+        thumb_container.setStyleSheet("background: #000000; border-radius: 6px; border: 1px solid #1e293b;")
+        thumb_layout = QVBoxLayout(thumb_container)
+        thumb_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.thumb_lbl = QLabel()
+        self.thumb_lbl.setAlignment(Qt.AlignCenter)
+        self.thumb_lbl.setPixmap(get_screen_thumbnail(self.screen_id))
+        self.thumb_lbl.setStyleSheet("border-radius: 5px;")
+        thumb_layout.addWidget(self.thumb_lbl)
+
+        layout.addWidget(thumb_container)
+
+        # 2. Header Row: Icon + Title + Badge
+        header_row = QHBoxLayout()
+        header_row.setSpacing(6)
 
         icon_lbl = QLabel(self.screen_data["icon"])
-        icon_lbl.setStyleSheet("font-size: 20px;")
-        top_row.addWidget(icon_lbl)
+        icon_lbl.setStyleSheet("font-size: 14px;")
+        header_row.addWidget(icon_lbl)
 
         title_lbl = QLabel(self.screen_data["title"])
-        title_lbl.setStyleSheet("font-weight: bold; font-size: 13px; color: #ffffff;")
-        top_row.addWidget(title_lbl, 1)
+        title_lbl.setStyleSheet("font-weight: bold; font-size: 12px; color: #ffffff;")
+        header_row.addWidget(title_lbl, 1)
 
         if self.screen_data["badge"]:
             badge = QLabel(self.screen_data["badge"])
-            if self.screen_data["badge"] == "NOWOŚĆ":
-                badge.setStyleSheet("background: #059669; color: #ffffff; font-weight: bold; font-size: 9px; padding: 2px 6px; border-radius: 4px;")
+            if self.screen_data["badge"] == "GRYWALNY":
+                badge.setStyleSheet("background: #ea580c; color: #ffffff; font-weight: bold; font-size: 8px; padding: 2px 4px; border-radius: 3px;")
+            elif self.screen_data["badge"] == "NOWOŚĆ":
+                badge.setStyleSheet("background: #059669; color: #ffffff; font-weight: bold; font-size: 8px; padding: 2px 4px; border-radius: 3px;")
             else:
-                badge.setStyleSheet("background: #7c3aed; color: #ffffff; font-weight: bold; font-size: 9px; padding: 2px 6px; border-radius: 4px;")
-            top_row.addWidget(badge)
+                badge.setStyleSheet("background: #7c3aed; color: #ffffff; font-weight: bold; font-size: 8px; padding: 2px 4px; border-radius: 3px;")
+            header_row.addWidget(badge)
 
         self.active_indicator = QLabel("AKTYWNY" if self.is_selected else "")
-        self.active_indicator.setStyleSheet("background: #0284c7; color: #ffffff; font-weight: bold; font-size: 9px; padding: 2px 6px; border-radius: 4px;")
+        self.active_indicator.setStyleSheet("background: #0284c7; color: #ffffff; font-weight: bold; font-size: 8px; padding: 2px 4px; border-radius: 3px;")
         self.active_indicator.setVisible(self.is_selected)
-        top_row.addWidget(self.active_indicator)
+        header_row.addWidget(self.active_indicator)
 
-        layout.addLayout(top_row)
+        layout.addLayout(header_row)
 
-        # Description
+        # 3. Compact Description
         desc_lbl = QLabel(self.screen_data["desc"])
         desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; line-height: 1.3;")
+        desc_lbl.setStyleSheet("color: #94a3b8; font-size: 10px; line-height: 1.2;")
+        desc_lbl.setFixedHeight(28)
         layout.addWidget(desc_lbl)
 
     def mousePressEvent(self, event):
@@ -221,16 +307,16 @@ class ScreenCardWidget(QFrame):
 
 class ScreenGalleryWidget(QWidget):
     """
-    Left-column screen gallery with category filters, search and interactive cards.
+    Overhauled Screen Gallery with 2-Column Responsive Tiles, Miniature Previews,
+    Category Filters, and Instant Mode Activation.
     """
     screen_changed = Signal(str)
 
-    def __init__(self, current_mode: str = "retro_synthwave"):
+    def __init__(self, current_mode: str = "mario"):
         super().__init__()
         self.current_mode = current_mode
-        self.cards: dict[str, ScreenCardWidget] = {}
+        self.tiles: dict[str, ScreenTileWidget] = {}
         self.active_category = "all"
-        self.search_text = ""
         self.setup_ui()
 
     def setup_ui(self):
@@ -240,8 +326,8 @@ class ScreenGalleryWidget(QWidget):
 
         # Header Title
         header_row = QHBoxLayout()
-        gallery_title = QLabel("🎨 Galeria Ekranów LCD")
-        gallery_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #00f0ff;")
+        gallery_title = QLabel("🎨 Galeria Ekranów LCD (Kafelki)")
+        gallery_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #00f0ff;")
         header_row.addWidget(gallery_title)
 
         header_row.addStretch()
@@ -249,14 +335,15 @@ class ScreenGalleryWidget(QWidget):
 
         # Filter Chips (Categories)
         filter_bar = QHBoxLayout()
-        filter_bar.setSpacing(6)
+        filter_bar.setSpacing(5)
 
         self.filter_group = QButtonGroup(self)
         self.filter_group.setExclusive(True)
 
         categories = [
             ("all", "Wszystkie"),
-            ("creative", "✨ Nowe & Efektowne"),
+            ("games", "🎮 Gry & Retro"),
+            ("creative", "✨ Efektowne"),
             ("telemetry", "📊 Telemetria"),
             ("tools", "🕒 Czas"),
             ("media", "🖼️ Media")
@@ -271,10 +358,10 @@ class ScreenGalleryWidget(QWidget):
                 QPushButton {
                     background: #1e293b;
                     color: #94a3b8;
-                    font-size: 11px;
+                    font-size: 10px;
                     font-weight: 600;
-                    padding: 5px 10px;
-                    border-radius: 12px;
+                    padding: 4px 8px;
+                    border-radius: 10px;
                     border: 1px solid #334155;
                 }
                 QPushButton:checked {
@@ -294,26 +381,30 @@ class ScreenGalleryWidget(QWidget):
         filter_bar.addStretch()
         main_layout.addLayout(filter_bar)
 
-        # Scroll Area for Cards
+        # Scroll Area for 2-Column Grid of Tiles
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("background: transparent; border: none;")
 
-        self.cards_container = QWidget()
-        self.cards_layout = QVBoxLayout(self.cards_container)
-        self.cards_layout.setContentsMargins(0, 4, 8, 4)
-        self.cards_layout.setSpacing(8)
+        self.tiles_container = QWidget()
+        self.grid_layout = QGridLayout(self.tiles_container)
+        self.grid_layout.setContentsMargins(0, 4, 6, 4)
+        self.grid_layout.setSpacing(8)
 
-        # Build cards
+        # Build Tiles in 2 columns
+        row, col = 0, 0
         for screen in SCREENS_CATALOG:
-            card = ScreenCardWidget(screen, is_selected=(screen["id"] == self.current_mode))
-            card.clicked.connect(self.select_screen)
-            self.cards[screen["id"]] = card
-            self.cards_layout.addWidget(card)
+            tile = ScreenTileWidget(screen, is_selected=(screen["id"] == self.current_mode))
+            tile.clicked.connect(self.select_screen)
+            self.tiles[screen["id"]] = tile
+            self.grid_layout.addWidget(tile, row, col)
+            col += 1
+            if col >= 2:
+                col = 0
+                row += 1
 
-        self.cards_layout.addStretch()
-        scroll.setWidget(self.cards_container)
+        scroll.setWidget(self.tiles_container)
         main_layout.addWidget(scroll, 1)
 
     def filter_category(self, category: str):
@@ -321,31 +412,37 @@ class ScreenGalleryWidget(QWidget):
         self.apply_filter()
 
     def apply_filter(self):
+        # Clear layout positions and re-grid visible tiles
+        for i in reversed(range(self.grid_layout.count())):
+            item = self.grid_layout.itemAt(i)
+            if item and item.widget():
+                self.grid_layout.removeWidget(item.widget())
+
+        row, col = 0, 0
         for screen in SCREENS_CATALOG:
             sid = screen["id"]
-            card = self.cards.get(sid)
-            if not card:
+            tile = self.tiles.get(sid)
+            if not tile:
                 continue
 
             match_cat = (self.active_category == "all" or screen["category"] == self.active_category)
-            match_search = (self.search_text == "" or self.search_text in screen["title"].lower() or self.search_text in screen["desc"].lower())
-
-            card.setVisible(match_cat and match_search)
+            if match_cat:
+                tile.show()
+                self.grid_layout.addWidget(tile, row, col)
+                col += 1
+                if col >= 2:
+                    col = 0
+                    row += 1
+            else:
+                tile.hide()
 
     def select_screen(self, screen_id: str):
-        if self.current_mode != screen_id:
-            # Unselect previous
-            if self.current_mode in self.cards:
-                self.cards[self.current_mode].set_selected(False)
-            
-            self.current_mode = screen_id
-            
-            # Select new
-            if screen_id in self.cards:
-                self.cards[screen_id].set_selected(True)
+        self.current_mode = screen_id
+        for sid, tile in self.tiles.items():
+            tile.set_selected(sid == screen_id)
+        self.screen_changed.emit(screen_id)
 
-            self.screen_changed.emit(screen_id)
-
-    def set_current_mode(self, mode: str):
-        if mode in self.cards:
-            self.select_screen(mode)
+    def set_active_mode(self, mode_id: str):
+        self.current_mode = mode_id
+        for sid, tile in self.tiles.items():
+            tile.set_selected(sid == mode_id)
