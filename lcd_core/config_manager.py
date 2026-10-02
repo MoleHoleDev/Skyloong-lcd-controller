@@ -4,7 +4,7 @@ from typing import Dict, Any
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "current_mode": "custom",  # image, gif, slideshow, clock, calendar, usage, temperatures, custom
-    "width": 240,
+    "width": 320,
     "height": 240,
     "fps": 30,
     "theme": "dark_cyberpunk",

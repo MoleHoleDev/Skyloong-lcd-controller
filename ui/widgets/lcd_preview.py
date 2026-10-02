@@ -37,9 +37,9 @@ class LCDPreviewWidget(QWidget):
         header_layout.addWidget(self.fps_lbl)
         layout.addLayout(header_layout)
 
-        # LCD Hardware Bezel Container
+        # LCD Hardware Bezel Container (320x240 widescreen)
         self.bezel = QFrame()
-        self.bezel.setFixedSize(264, 264)
+        self.bezel.setFixedSize(344, 264)
         self.bezel.setStyleSheet("""
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1a2233, stop:1 #0c111a);
@@ -52,9 +52,9 @@ class LCDPreviewWidget(QWidget):
         bezel_layout.setContentsMargins(10, 10, 10, 10)
         bezel_layout.setAlignment(Qt.AlignCenter)
 
-        # Actual screen label inside bezel (240x240)
+        # Actual screen label inside bezel (320x240)
         self.screen_lbl = QLabel()
-        self.screen_lbl.setFixedSize(240, 240)
+        self.screen_lbl.setFixedSize(320, 240)
         self.screen_lbl.setStyleSheet("background-color: #000000; border-radius: 6px; border: 1px solid #101622;")
         self.screen_lbl.setAlignment(Qt.AlignCenter)
         bezel_layout.addWidget(self.screen_lbl)
@@ -93,8 +93,8 @@ class LCDPreviewWidget(QWidget):
             qim = QImage(data, pil_image.width, pil_image.height, QImage.Format_RGBA8888)
             pix = QPixmap.fromImage(qim)
             
-            # Scale to fit 240x240 smoothly
-            self.screen_lbl.setPixmap(pix.scaled(240, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            # Scale to fit 320x240 smoothly
+            self.screen_lbl.setPixmap(pix.scaled(320, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         except Exception as e:
             print(f"[LCD Preview] Conversion error: {e}")
 

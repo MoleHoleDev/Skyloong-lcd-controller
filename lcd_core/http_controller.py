@@ -109,9 +109,9 @@ class HTTPController:
             elif not filename.endswith(".jpg") and not filename.endswith(".jpeg"):
                 filename = f"{filename}.jpg"
 
-            # Ensure 240x240 RGB
-            if pil_image.size != (240, 240):
-                pil_image = pil_image.resize((240, 240), Image.Resampling.LANCZOS)
+            # Ensure 320x240 RGB
+            if pil_image.size != (320, 240):
+                pil_image = pil_image.resize((320, 240), Image.Resampling.LANCZOS)
             if pil_image.mode != "RGB":
                 pil_image = pil_image.convert("RGB")
 

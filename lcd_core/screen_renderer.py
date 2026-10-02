@@ -34,7 +34,7 @@ class ScreenRenderer:
     Temperatures, and Hybrid/Custom Multi-Widget Dashboards.
     """
 
-    def __init__(self, width: int = 240, height: int = 240):
+    def __init__(self, width: int = 320, height: int = 240):
         self.width = width
         self.height = height
         
@@ -53,31 +53,42 @@ class ScreenRenderer:
         # Custom BG Image Cache
         self.bg_image_path: Optional[str] = None
         self.bg_image_cached: Optional[Image.Image] = None
+        
+        # Last rendered frame
+        self.current_frame: Optional[Image.Image] = None
+
+    def get_current_frame(self) -> Optional[Image.Image]:
+        """Returns the most recently rendered frame."""
+        return self.current_frame
 
     def render(self, config: Dict[str, Any], metrics: Dict[str, Any]) -> Image.Image:
         """Main dispatcher based on current_mode."""
         mode = config.get("current_mode", "custom")
-        self.width = config.get("width", 240)
+        self.width = config.get("width", 320)
         self.height = config.get("height", 240)
 
+        img: Image.Image
         if mode == "image":
-            return self.render_image_mode(config)
+            img = self.render_image_mode(config)
         elif mode == "gif":
-            return self.render_gif_mode(config)
+            img = self.render_gif_mode(config)
         elif mode == "slideshow":
-            return self.render_slideshow_mode(config)
+            img = self.render_slideshow_mode(config)
         elif mode == "clock":
-            return self.render_clock_mode(config)
+            img = self.render_clock_mode(config)
         elif mode == "calendar":
-            return self.render_calendar_mode(config)
+            img = self.render_calendar_mode(config)
         elif mode == "usage":
-            return self.render_usage_mode(config, metrics)
+            img = self.render_usage_mode(config, metrics)
         elif mode == "temperatures":
-            return self.render_temperatures_mode(config, metrics)
+            img = self.render_temperatures_mode(config, metrics)
         elif mode == "custom":
-            return self.render_custom_mode(config, metrics)
+            img = self.render_custom_mode(config, metrics)
         else:
-            return self.render_custom_mode(config, metrics)
+            img = self.render_custom_mode(config, metrics)
+
+        self.current_frame = img
+        return img
 
     # -------------------------------------------------------------
     # 1. IMAGE MODE

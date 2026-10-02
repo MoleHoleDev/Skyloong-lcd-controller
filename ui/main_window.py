@@ -27,7 +27,9 @@ from ui.widgets.clock_tab import ClockTab
 from ui.widgets.calendar_tab import CalendarTab
 from ui.widgets.system_tab import SystemTab
 from ui.widgets.custom_tab import CustomTab
+from ui.widgets.usb_stream_tab import USBStreamTab
 from ui.widgets.settings_tab import SettingsTab
+from lcd_core.usb_streamer import USBStreamController
 from ui.theme import STYLE_SHEET
 
 class MainWindow(QMainWindow):
@@ -61,6 +63,9 @@ class MainWindow(QMainWindow):
         )
         self.http_ctrl = HTTPController(
             screen_ip=self.config_mgr.get("screen_ip", "192.168.1.115")
+        )
+        self.usb_stream_ctrl = USBStreamController(
+            port=self.config_mgr.get("usb_stream_port", "/dev/ttyACM0")
         )
 
         # Performance / FPS measurement
@@ -143,7 +148,11 @@ class MainWindow(QMainWindow):
         self.slideshow_tab.config_changed.connect(self.on_config_updated)
         self.tabs.addTab(self.slideshow_tab, "📋 Pokaz slajdów")
 
-        # 8. Settings & Connections Tab
+        # 8. USB Live Stream Tab
+        self.usb_stream_tab = USBStreamTab(self.usb_stream_ctrl, self.get_current_pil_frame, parent=self)
+        self.tabs.addTab(self.usb_stream_tab, "⚡ USB Stream")
+
+        # 9. Settings & Connections Tab
         self.settings_tab = SettingsTab(self.config_mgr, self.net_server, self.serial_ctrl, self.http_ctrl)
         self.settings_tab.config_changed.connect(self.on_config_updated)
         self.tabs.addTab(self.settings_tab, "⚙️ Ustawienia")
@@ -200,47 +209,66 @@ class MainWindow(QMainWindow):
 
         mode_box_layout.addLayout(grid)
 
-        # Push To Screen Button
-        self.push_to_screen_btn = QPushButton("📡 Wyślij widok na ekran (Wi-Fi)")
-        self.push_to_screen_btn.setObjectName("AccentButton")
-        self.push_to_screen_btn.setStyleSheet("""
+        # Direct USB Live Stream Toggle Button
+        self.usb_stream_toggle_btn = QPushButton("🚀 Rozpocznij Strumieniowanie USB")
+        self.usb_stream_toggle_btn.setObjectName("AccentButton")
+        self.usb_stream_toggle_btn.setStyleSheet("""
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #06b6d4);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
                 color: #ffffff;
                 font-weight: bold;
-                font-size: 12px;
-                padding: 8px;
+                font-size: 13px;
+                padding: 10px;
                 border-radius: 6px;
-                border: 1px solid #38bdf8;
+                border: 1px solid #34d399;
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0369a1, stop:1 #0891b2);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
             }
         """)
-        self.push_to_screen_btn.clicked.connect(lambda: self.send_current_view_to_screen(silent=False))
-        mode_box_layout.addWidget(self.push_to_screen_btn)
+        self.usb_stream_toggle_btn.clicked.connect(self.toggle_main_usb_streaming)
+        mode_box_layout.addWidget(self.usb_stream_toggle_btn)
 
-        # Live Sync Checkbox
-        self.live_sync_cb = QCheckBox("🔄 Ciągła synchronizacja na żywo (co 2s)")
-        self.live_sync_cb.setStyleSheet("color: #38bdf8; font-weight: bold; font-size: 11px; padding: 2px;")
-        self.live_sync_cb.toggled.connect(self.on_live_sync_toggled)
-        mode_box_layout.addWidget(self.live_sync_cb)
-
-        # Quick USB Switch Button
-        self.usb_quick_switch_btn = QPushButton("⚡ Przełącz ekran fizyczny (USB `)")
-        self.usb_quick_switch_btn.setToolTip("Wysyła sygnał '`' (backtick) bezpośrednio przez kabel USB (/dev/ttyACM*), co natychmiast przełącza ekran na następną aplikację (Zegar -> APS -> GIF -> Pogoda -> Sysinfo).")
-        self.usb_quick_switch_btn.setStyleSheet("""
+        # Push To Screen Button (Single Frame / Wi-Fi)
+        self.push_to_screen_btn = QPushButton("📡 Wyślij bieżącą klatkę na ekran (USB / Wi-Fi)")
+        self.push_to_screen_btn.setStyleSheet("""
             QPushButton {
                 background: #0f172a;
                 color: #38bdf8;
                 font-weight: bold;
                 font-size: 11px;
-                padding: 6px;
+                padding: 7px;
                 border-radius: 6px;
                 border: 1px solid #0284c7;
             }
             QPushButton:hover {
                 background: #0284c7;
+                color: #ffffff;
+            }
+        """)
+        self.push_to_screen_btn.clicked.connect(lambda: self.send_current_view_to_screen(silent=False))
+        mode_box_layout.addWidget(self.push_to_screen_btn)
+
+        # Live Sync Checkbox (Wi-Fi)
+        self.live_sync_cb = QCheckBox("🔄 Wi-Fi Sync (co 2s)")
+        self.live_sync_cb.setStyleSheet("color: #94a3b8; font-size: 10px; padding: 2px;")
+        self.live_sync_cb.toggled.connect(self.on_live_sync_toggled)
+        mode_box_layout.addWidget(self.live_sync_cb)
+
+        # Quick USB Switch Button
+        self.usb_quick_switch_btn = QPushButton("⚡ Przełącz tryb fabryczny (USB `)")
+        self.usb_quick_switch_btn.setToolTip("Wysyła sygnał '`' (backtick) bezpośrednio przez kabel USB (/dev/ttyACM*), co natychmiast przełącza ekran na następną aplikację (Zegar -> APS -> GIF -> Pogoda -> Sysinfo).")
+        self.usb_quick_switch_btn.setStyleSheet("""
+            QPushButton {
+                background: #0f172a;
+                color: #94a3b8;
+                font-size: 10px;
+                padding: 5px;
+                border-radius: 6px;
+                border: 1px solid #1e293b;
+            }
+            QPushButton:hover {
+                background: #1e293b;
                 color: #ffffff;
             }
         """)
@@ -253,7 +281,7 @@ class MainWindow(QMainWindow):
         mode_box_layout.addWidget(self.apply_btn)
 
         # Guide Dialog Button
-        self.guide_btn = QPushButton("📖 Jak przełączać tryb na ekraniku GK104?")
+        self.guide_btn = QPushButton("📖 Instrukcja obsługi ekranika GK104")
         self.guide_btn.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 11px; padding: 5px;")
         self.guide_btn.clicked.connect(self.show_screen_guide)
         mode_box_layout.addWidget(self.guide_btn)
@@ -270,9 +298,19 @@ class MainWindow(QMainWindow):
         self.sb_stats_lbl.setStyleSheet("color: #94a3b8; font-weight: 500;")
         self.status_bar.addWidget(self.sb_stats_lbl, 1)
 
+        self.sb_usb_lbl = QLabel("⚡ USB Stream: ⚪ Rozłączony")
+        self.sb_usb_lbl.setStyleSheet("color: #94a3b8; font-weight: bold; margin-right: 10px;")
+        self.status_bar.addPermanentWidget(self.sb_usb_lbl)
+
         self.sb_net_lbl = QLabel("🌐 TCP: Port 1648 (Aktywny)")
         self.sb_net_lbl.setStyleSheet("color: #10b981; font-weight: bold;")
         self.status_bar.addPermanentWidget(self.sb_net_lbl)
+
+        # Connect USB stream tab signals
+        self.usb_stream_tab.streaming_toggled.connect(self.on_usb_streaming_toggled)
+
+        # Autostart USB stream if available
+        QTimer.singleShot(600, self.auto_start_usb_stream_if_available)
 
         # Set initial tab according to config
         mode_to_tab = {
@@ -312,6 +350,13 @@ class MainWindow(QMainWindow):
         self.tray_icon.activated.connect(self.on_tray_activated)
         self.tray_icon.show()
 
+    def get_current_pil_frame(self):
+        """Returns current rendered PIL frame from active mode."""
+        frame = self.renderer.get_current_frame()
+        if not frame:
+            frame = self.renderer.render(self.config_mgr.config, self.current_metrics)
+        return frame
+
     def on_tab_changed(self, index: int):
         tab_to_mode = {
             0: "custom",
@@ -321,9 +366,10 @@ class MainWindow(QMainWindow):
             4: "image",
             5: "gif",
             6: "slideshow",
-            7: self.config_mgr.get("current_mode", "custom")
+            7: self.config_mgr.get("current_mode", "custom"),
+            8: self.config_mgr.get("current_mode", "custom")
         }
-        if index in tab_to_mode and index != 7:
+        if index in tab_to_mode and index not in (7, 8):
             new_mode = tab_to_mode[index]
             self.config_mgr.set("current_mode", new_mode)
             self.update_active_mode_badge(new_mode)
@@ -438,6 +484,62 @@ class MainWindow(QMainWindow):
         """Called whenever settings change."""
         pass
 
+    def toggle_main_usb_streaming(self):
+        """Toggles USB live frame streaming directly from the main panel."""
+        if self.usb_stream_tab.stream_thread and self.usb_stream_tab.stream_thread.isRunning():
+            self.usb_stream_tab.stop_streaming()
+        else:
+            self.usb_stream_tab.start_streaming()
+
+    def on_usb_streaming_toggled(self, is_streaming: bool):
+        """Updates GUI buttons and badges when streaming state changes."""
+        if is_streaming:
+            self.usb_stream_toggle_btn.setText("⏹ Zatrzymaj Strumieniowanie USB")
+            self.usb_stream_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #dc2626, stop:1 #ef4444);
+                    color: #ffffff;
+                    font-weight: bold;
+                    font-size: 13px;
+                    padding: 10px;
+                    border-radius: 6px;
+                    border: 1px solid #f87171;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #b91c1c, stop:1 #dc2626);
+                }
+            """)
+            self.sb_usb_lbl.setText("⚡ USB Stream: 🟢 Aktywny (30 FPS)")
+            self.sb_usb_lbl.setStyleSheet("color: #10b981; font-weight: bold; margin-right: 10px;")
+        else:
+            self.usb_stream_toggle_btn.setText("🚀 Rozpocznij Strumieniowanie USB")
+            self.usb_stream_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
+                    color: #ffffff;
+                    font-weight: bold;
+                    font-size: 13px;
+                    padding: 10px;
+                    border-radius: 6px;
+                    border: 1px solid #34d399;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
+                }
+            """)
+            self.sb_usb_lbl.setText("⚡ USB Stream: ⚪ Wyłączony")
+            self.sb_usb_lbl.setStyleSheet("color: #94a3b8; font-weight: bold; margin-right: 10px;")
+
+    def auto_start_usb_stream_if_available(self):
+        """Automatically starts USB live frame streaming if USB screen is detected."""
+        import glob
+        acm_ports = sorted(glob.glob('/dev/ttyACM*'))
+        if acm_ports:
+            port = acm_ports[0]
+            print(f"[MainWindow] Wykryto port USB ekranu {port}, uruchamianie strumieniowania...")
+            self.usb_stream_tab.port_combo.setCurrentText(port)
+            self.usb_stream_tab.start_streaming()
+
     def on_live_sync_toggled(self, checked: bool):
         if checked:
             self.sync_timer.start(2000)
@@ -450,15 +552,33 @@ class MainWindow(QMainWindow):
             self.send_current_view_to_screen(silent=True)
 
     def send_current_view_to_screen(self, silent: bool = False):
-        """Sends current rendered frame or switches active mode on physical LCD screen over Wi-Fi HTTP."""
+        """Sends current rendered frame or switches active mode on physical LCD screen over USB or Wi-Fi."""
         if self.is_sending_frame:
+            return
+
+        current_frame = self.renderer.get_current_frame()
+        if not current_frame:
+            current_frame = self.renderer.render(self.config_mgr.config, self.current_metrics)
+
+        # Clone image to avoid race condition
+        frame_copy = current_frame.copy()
+
+        # If USB Streamer is connected or available, send directly via USB!
+        if self.usb_stream_ctrl.connected:
+            ok = self.usb_stream_ctrl.send_jpeg_frame(frame_copy)
+            if not silent:
+                if ok:
+                    self.push_to_screen_btn.setText("✅ Wysłano przez USB!")
+                else:
+                    self.push_to_screen_btn.setText("⚠️ Błąd wysyłania USB")
+                QTimer.singleShot(2500, lambda: self.push_to_screen_btn.setText("📡 Wyślij bieżącą klatkę na ekran (USB / Wi-Fi)"))
             return
 
         mode = self.config_mgr.get("current_mode", "custom")
         screen_ip = self.config_mgr.get("screen_ip", "192.168.1.115")
         self.http_ctrl.set_ip(screen_ip)
 
-        # 1. Telemetry / PC Monitor mode
+        # Telemetry / PC Monitor mode over Wi-Fi
         if mode in ("usage", "temperatures"):
             def _worker_sysinfo():
                 self.is_sending_frame = True
@@ -472,28 +592,21 @@ class MainWindow(QMainWindow):
                         self.push_to_screen_btn.setText("✅ Przełączono na PC Monitor")
                     else:
                         self.push_to_screen_btn.setText("⚠️ Błąd połączenia")
-                    QTimer.singleShot(2500, lambda: self.push_to_screen_btn.setText("📡 Wyślij widok na ekran (Wi-Fi)"))
+                    QTimer.singleShot(2500, lambda: self.push_to_screen_btn.setText("📡 Wyślij bieżącą klatkę na ekran (USB / Wi-Fi)"))
             threading.Thread(target=_worker_sysinfo, daemon=True).start()
             return
 
-        # 2. Rendered Frame (Custom, Clock, Calendar, Image, Slideshow)
-        current_frame = self.renderer.get_current_frame()
-        if not current_frame:
-            current_frame = self.renderer.render(self.config_mgr.config, self.current_metrics)
-
-        # Clone image to avoid race condition
-        frame_copy = current_frame.copy()
-
+        # Rendered Frame over Wi-Fi
         def _worker_frame():
             self.is_sending_frame = True
             ok, msg = self.http_ctrl.upload_frame(frame_copy, filename="screen_live.jpg")
             self.is_sending_frame = False
             if not silent:
                 if ok:
-                    self.push_to_screen_btn.setText("✅ Wysłano na ekran LCD!")
+                    self.push_to_screen_btn.setText("✅ Wysłano na ekran (Wi-Fi)!")
                 else:
                     self.push_to_screen_btn.setText("⚠️ Błąd wysyłania")
-                QTimer.singleShot(2500, lambda: self.push_to_screen_btn.setText("📡 Wyślij widok na ekran (Wi-Fi)"))
+                QTimer.singleShot(2500, lambda: self.push_to_screen_btn.setText("📡 Wyślij bieżącą klatkę na ekran (USB / Wi-Fi)"))
 
         threading.Thread(target=_worker_frame, daemon=True).start()
 
@@ -558,6 +671,8 @@ class MainWindow(QMainWindow):
             self.close_application()
 
     def close_application(self):
+        self.usb_stream_tab.stop_streaming()
+        self.usb_stream_ctrl.disconnect_usb()
         self.net_server.stop()
         self.serial_ctrl.disconnect()
         self.config_mgr.save()
