@@ -1,156 +1,78 @@
-# Skyloong LCD Controller (Linux) 🖥️ 🌈 ⚡
+# ⚡ Skyloong LCD Controller — GK104 Pro Studio (320x240)
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![PySide6 / Qt6](https://img.shields.io/badge/GUI-PySide6%20%2F%20Qt6-41CD52.svg?style=flat-square&logo=qt&logoColor=white)](https://pypi.org/project/PySide6/)
-[![Platform Linux](https://img.shields.io/badge/platform-Linux%20%7C%20CachyOS%20%7C%20Arch%20%7C%20Ubuntu-FCC624.svg?style=flat-square&logo=linux&logoColor=black)](https://www.kernel.org/)
-[![License MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
-
-Nowoczesna aplikacja graficzna **Python / PySide6 (Qt6)** do kompleksowego zarządzania i wyświetlania treści na wbudowanym 2-calowym ekranie LCD klawiatury **Skyloong GK104 Pro (ESP32-S3)**.
+Nowoczesna aplikacja graficzna **Python / PySide6 (Qt6)** do kompleksowego zarządzania i bezpośredniego strumieniowania obrazu w czasie rzeczywistym (do **60 FPS przez USB CDC**) na wyświetlacz LCD klawiatury **Skyloong GK104 Pro** (oraz kompatybilnych modułów Skyloong v3.0 z układem ESP32-S3 i rozdzielczością 320x240).
 
 ---
 
-## ✨ Kluczowe funkcjonalności
+## 🚀 Nowy, prosty interfejs dwukolumnowy
 
-### 1. 🖼️ Zdjęcia (Photos & Images)
-- Wgrywanie dowolnych grafik w formatach: `PNG`, `JPG`, `JPEG`, `BMP`, `WebP`, `ICO`.
-- Tryby dopasowania do ekranu:
-  - **Wypełnij (Cover):** Inteligentne kadrowanie i wypełnienie bez zniekształceń proporcji.
-  - **Dopasuj (Contain):** Skalowanie z zachowaniem proporcji (pasy boczne/górne).
-  - **Rozciągnij (Stretch):** Dokładne dopasowanie do wymiarów wyświetlacza.
-- Płynna korekcja jasności (20% – 200%) oraz kontrastu (20% – 200%).
+Aplikacja została gruntownie przebudowana z myślą o prostocie, maksymalnej wydajności i komforcie użytkowania:
 
-### 2. 🎞️ Animowane GIFy (GIF Player)
-- Obsługa wieloklatkowych animacji `*.gif`.
-- Precyzyjna regulacja prędkości odtwarzania w czasie rzeczywistym (od `0.25x` do `3.0x`).
-- Płynne zapętlanie z automatyczną optymalizacją klatek do rozdzielczości ekranu.
-
-### 3. 📋 Pokazy slajdów (Slideshows)
-- Wygodna kolejka zdjęć (dodawanie wielu plików, usuwanie, czyszczenie).
-- Konfigurowalny czas wyświetlania slajdu (od 1 do 300 sekund).
-- Opcja losowej kolejności (**Shuffle**).
-
-### 4. 🕒 Zegary (Clocks)
-5 unikalnych stylów zegara dopasowanych do każdego setupu:
-- 🚀 **Cyberpunk Neon:** Pasek upływu sekund, dynamiczna data, styl sci-fi, wskaźnik statusu.
-- ⏱️ **Cyfrowy Modern:** Duże, wyraziste cyfry o wysokim kontraście.
-- 📟 **Retro Zielony LCD:** Klasyczny wygląd 7-segmentowego wyświetlacza ciekłokrystalicznego.
-- 🔲 **Minimalistyczny:** Nowoczesna typografia w orientacji pionowej.
-- 🕒 **Klasyczny Analogowy:** Cyferblat ze wskazówką godzinową, minutową i płynną sekundową.
-- Wybór koloru akcentu: *Cyjan, Magenta, Szmaragdowy Matrix, Amber Gold, Czerwień, Biel*.
-
-### 5. 📅 Kalendarz (Calendar)
-- Pełny widok bieżącego miesiąca z wyróżnieniem dzisiejszego dnia.
-- Oznaczenie dni roboczych oraz weekendów (Sobota, Niedziela).
-- Wskaźnik numeru tygodnia wg standardu ISO.
-- Opcjonalny mini-zegar cyfrowy w nagłówku.
-
-### 6. 📊 Monitor Zużycia Zasobów (Performance & Usage)
-- **CPU:** Precyzyjne obciążenie procesora (% per-core / ogólne).
-- **RAM:** Zużycie pamięci operacyjnej w procentach i gigabajtach (`GB used / total`).
-- **GPU:** Obciążenie karty graficznej (autodetekcja układów AMD Radeon / NVIDIA / Intel).
-- **Sieć:** Prędkość pobierania (▼ RX) i wysyłania (▲ TX) w czasie rzeczywistym.
-- Style wizualizacji: *Pierścienie Neon (Rings)* lub *Paski telemetryczne (Bars)*.
-
-### 7. 🌡️ Monitor Temperatur Sprzętu (Hardware Thermals)
-- **CPU Temp (°C):** Odczyt z czujników `k10temp`, `coretemp`, `zenpower`, `acpitz`.
-- **GPU Temp (°C):** Odczyt z sensorów `amdgpu`, `nvidia`, `nouveau`.
-- **NVMe SSD Temp (°C):** Odczyt z kontrolerów dysków półprzewodnikowych PCIe/NVMe.
-- Trzypoziomowe kolorowanie stanu cieplnego:
-  - 🟢 **Chłodny (<55°C):** Szmaragdowa zieleń.
-  - 🟡 **Ciepły (55°C - 75°C):** Bursztyn / Pomarańcz.
-  - 🔴 **Gorący (>75°C / Alarm):** Czerwień / Karmazyn.
-- Możliwość dostosowania własnych progów ostrzegawczych w zakładce Zużycie/Temp.
-
-### 8. 🧩 Panel Hybrydowy "Do wyboru" (Custom Multi-Widget Dashboard)
-Elastyczny ekran pozwalający na skomponowanie własnego układu:
-- [x] Kompaktowy zegar cyfrowy i data na górze
-- [x] Pasek obciążenia procesora CPU (%)
-- [x] Pasek obciążenia pamięci RAM (%)
-- [x] Pasek obciążenia karty graficznej GPU (%)
-- [x] Kafelki temperatur CPU, GPU i NVMe SSD (°C)
-- [x] Wskaźnik transferu sieci
-- **Wybór tła:** Ciemny gradient Cyberpunk, Czysta czerń OLED lub **własne zdjęcie/grafika w tle**!
+1. **Lewa kolumna (Galeria Ekranów & Podgląd na żywo):**
+   - **Wirtualny ekran LCD 320x240:** wierne odwzorowanie fizycznego wyświetlacza z licznikiem FPS, wskaźnikiem aktywnego trybu i przyciskiem zrzutu ekranu (`PNG`).
+   - **Katalog interaktywnych kart:** 14 gotowych ekranów z filtrowaniem kategorii (*Wszystkie*, *Kreatywne & HUD*, *Telemetria*, *Czas*, *Media*). Kliknięcie karty natychmiast przełącza widok.
+2. **Prawa kolumna (Szczegółowe ustawienia):**
+   - Dedykowany, przejrzysty panel konfiguracji dla aktualnie wybranego ekranu.
+   - Pasek parametrów strumienia USB: regulacja klatkażu (15 / 30 / 45 / 60 FPS), jakości kompresji JPEG (70–95%) oraz wybór portu `/dev/ttyACM*`.
+3. **Pasek globalny:**
+   - Przycisk 1-klik: **`🚀 Rozpocznij / ⏹ Zatrzymaj Strumieniowanie USB`**.
+   - Suwak natychmiastowej regulacji jasności podświetlenia (`☀️ 10–255`).
+   - Narzędzie wgrywania firmware ESP32-S3.
 
 ---
 
-## 🖥️ Podgląd na żywo & Komunikacja ze sprzętem
+## 🎨 Katalog 14 Dostępnych Ekranów
 
-1. **Wirtualny podgląd LCD (Live Preview):**
-   - Symulacja fizycznego ekranu klawiatury w czasie rzeczywistym (~30 FPS).
-   - Przycisk zrzutu ekranu (**📸 Zrzut ekranu**) do zapisu wygenerowanej klatki.
-2. **Serwer Telemetrii TCP (Wi-Fi):**
-   - Kompatybilny z fabrycznym firmware Skyloong GK104 Pro (port `1648`).
-   - Automatyczna transmisja pakietów telemetrycznych do ekranu po Wi-Fi.
-3. **Połączenie USB-C (Serial CDC):**
-   - Autodetekcja portów `/dev/ttyACM*` oraz `/dev/ttyUSB*`.
-4. **Zasobnik systemowy (System Tray):**
-   - Minimalizacja do paska zadań.
-   - Tryb demona w tle (`--daemon`).
+### ✨ Nowe ekrany kreatywne & HUD
+1. **🌆 Retro Synthwave HUD:**
+   - Animowany, perspektywiczny grid neonowy i retro słońce z poziomymi pasami.
+   - Duży cyberpunkowy zegar cyfrowy, data i wskaźniki obciążenia CPU, GPU, RAM oraz temperatur.
+   - Wybór palet kolorów (*Neon Sunset*, *Cyber Grid*, *Outrun Purple*, *Laser Blue*) i edycja własnego napisu.
+2. **🟢 Matrix Digital Rain:**
+   - Spływający kaskadowo deszcz zielonych znaków Matrix / hex.
+   - Konsola terminala z cyfrowym zegarem czasu rzeczywistego i macierzą zużycia zasobów komputera.
+   - Motywy kolorystyczne: *Classic Green*, *Amber CRT*, *Cyber Cyan*, *Red Alert*.
+3. **🎵 Audio Spectrum & VU Meter:**
+   - 18-pasmowy dynamiczny spektrogram częstotliwości audio ze wskaźnikami wartości szczytowych (*Peak Hold*).
+   - Stereofoniczny podwójny miernik poziomu sygnału (CH-L / CH-R) z podziałem decybelowym (Zielony/Żółty/Czerwony).
+4. **🏎️ Dual Racing Tachometers (Zegary obrotomierza):**
+   - Podwójne analogowe wskaźniki zegarowe dla obciążenia CPU i GPU ze wskazówkami i strefą czerwonego pola (*Redline*).
+   - Środkowy cyfrowy blok odczytu temperatur podzespołów oraz dolny pasek pamięci RAM i dysku NVMe.
+5. **⏱️ Pomodoro & Focus Timer:**
+   - Okrągły wskaźnik postępu sesji głębokiej pracy (*Deep Work - 25 min*) i przerw regeneracyjnych (*Break - 5 min*).
+   - Przyciski Start / Pauza / Reset oraz licznik zrealizowanych rund.
+6. **🚀 Sci-Fi Starship HUD:**
+   - Panel dowodzenia rodem z mostka statku kosmicznego z obrotowym radarem taktycznym (Sweep radar).
+   - Wskaźniki stanu rdzenia reaktora (CPU), silników warp (GPU) i osłon (RAM).
+
+### 📊 Telemetria i monitoring podzespołów
+7. **🧩 Super Dashboard (Modułowy):**
+   - Dowolne łączenie elementów: zegar, słupki CPU/RAM/GPU, temperatury podzespołów i własne zdjęcie w tle.
+8. **📊 Telemetria PC (Pierścienie Neon):**
+   - Trzy kołowe wskaźniki zegarowe CPU, RAM i GPU z prędkością transferu sieci.
+9. **🌡️ Temperatury Podzespołów (Thermals):**
+   - Szczegółowy monitoring temperatur CPU, GPU i dysku NVMe SSD z 3-stopniowym systemem alertów barwnych.
+
+### 🕒 Zegary i Narzędzia
+10. **🕒 Zegary Stylizowane:**
+    - 5 stylów: *Cyberpunk Neon*, *Cyfrowy Modern*, *Retro Zielony LCD (Casio)*, *Minimalistyczny*, *Klasyczny Analogowy*.
+11. **📅 Kalendarz Miesięczny:**
+    - Pełny miesiąc z wyróżnionym dniem dzisiejszym, dniami wolnymi od pracy i zegarem.
+
+### 🖼️ Multimedia
+12. **🖼️ Zdjęcia i Grafiki:**
+    - Obsługa PNG, JPG, BMP, WebP z dopasowaniem kadru (*Cover*, *Contain*, *Stretch*), jasnością i kontrastem.
+13. **🎞️ Animowany GIF Player:**
+    - Odtwarzanie GIF-ów z suwakiem prędkości klatek (0.25x – 3.0x).
+14. **📋 Pokaz Slajdów:**
+    - Playlisty zdjęć z automatyczną rotacją i trybem losowym (*Shuffle*).
 
 ---
 
-## 🚀 Szybki start i instalacja
-
-### 1. Wymagania systemowe
-- System Linux (CachyOS, Arch Linux, Ubuntu, Debian, Fedora, openSUSE)
-- Python 3.10+
-- Pakiety: `PySide6`, `psutil`, `Pillow`, `pyserial`
-
-### 2. Uruchomienie aplikacji
+## 🛠️ Uruchomienie aplikacji
 
 ```bash
-# Wejdź do katalogu projektu
-cd /home/kret/Pulpit/PROJEKTY/skyloong-lcd-controller
-
-# Uruchom program
-./run.sh
+/home/kret/Pulpit/PROJEKTY/skyloong-lcd-controller/run.sh
 ```
 
-lub bezpośrednio przez Pythona:
-
-```bash
-python3 main.py
-```
-
-### 3. Uruchomienie w tle (tryb demona / autostart)
-
-```bash
-./run.sh --daemon
-```
-
----
-
-## 📁 Struktura projektu
-
-```
-skyloong-lcd-controller/
-├── main.py                     # Główny punkt wejściowy aplikacji
-├── run.sh                      # Skrypt uruchomieniowy
-├── requirements.txt            # Zależności Python
-├── README.md                   # Dokumentacja projektu
-├── lcd_core/
-│   ├── system_monitor.py       # Odczyt parametrów CPU, RAM, GPU i temperatur
-│   ├── screen_renderer.py      # Silnik renderowania klatek (8 trybów)
-│   ├── config_manager.py       # Zarządzanie ustawieniami (~/.config/skyloong_lcd/)
-│   ├── network_server.py       # Serwer TCP telemetrii (port 1648)
-│   └── serial_controller.py    # Komunikacja USB-C / Serial CDC
-└── ui/
-    ├── main_window.py          # Główne okno aplikacji PySide6
-    ├── theme.py                # Motyw graficzny Dark Cyberpunk QSS
-    └── widgets/
-        ├── lcd_preview.py      # Wirtualny podgląd ekranu LCD 240x240
-        ├── image_tab.py        # Zakładka zdjęć i filtrów
-        ├── gif_tab.py          # Zakładka odtwarzacza GIF
-        ├── slideshow_tab.py    # Zakładka pokazu slajdów
-        ├── clock_tab.py        # Zakładka zegarów i stylów
-        ├── calendar_tab.py     # Zakładka kalendarza
-        ├── system_tab.py       # Zakładka zużycia i temperatur
-        ├── custom_tab.py       # Zakładka "Do wyboru" (panel hybrydowy)
-        └── settings_tab.py     # Zakładka ustawień sieci i połączeń
-```
-
----
-
-## 📜 Licencja
-
-Projekt objęty licencją **MIT**.
+Wszystkie zależności instalują się automatycznie w dedykowanym środowisku wirtualnym `.venv`.

@@ -3,47 +3,88 @@ import json
 from typing import Dict, Any
 
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "current_mode": "custom",  # image, gif, slideshow, clock, calendar, usage, temperatures, custom
+    "current_mode": "retro_synthwave",  # retro_synthwave, matrix_rain, audio_visualizer, dual_gauges, pomodoro, scifi_terminal, custom, usage, temperatures, clock, calendar, image, gif, slideshow
     "width": 320,
     "height": 240,
     "fps": 30,
+    "brightness": 200,
     "theme": "dark_cyberpunk",
     
-    # Image Settings
+    # 1. Retro Synthwave HUD
+    "synthwave_theme": "neon_sunset",  # neon_sunset, cyber_grid, outrun_purple, laser_blue
+    "synthwave_show_sun": True,
+    "synthwave_show_clock": True,
+    "synthwave_show_telemetry": True,
+    "synthwave_custom_text": "CYBERPUNK 2077",
+
+    # 2. Matrix Digital Rain HUD
+    "matrix_color": "matrix_green",  # matrix_green, amber_crt, cyber_cyan, red_alert
+    "matrix_speed": 1.0,
+    "matrix_show_clock": True,
+    "matrix_show_stats": True,
+
+    # 3. Audio VU Meter & Spectrum Visualizer
+    "audio_style": "spectrum_bars",  # spectrum_bars, dual_vu_meter, waveform_pulse
+    "audio_color": "neon_gradient",  # neon_gradient, cyber_cyan, fire_amber, vaporwave
+    "audio_sensitivity": 1.0,
+    "audio_show_peaks": True,
+
+    # 4. Dual Tachometer Racing Cluster
+    "gauges_style": "sport_tachometer",  # sport_tachometer, turbo_boost, classic_analog
+    "gauges_color": "amber_red",  # amber_red, neon_cyan, emerald_green, hyper_purple
+    "gauges_show_temps": True,
+    "gauges_show_ram": True,
+
+    # 5. Pomodoro & Focus Timer
+    "pomodoro_focus_min": 25,
+    "pomodoro_break_min": 5,
+    "pomodoro_state": "stopped",  # running, paused, stopped
+    "pomodoro_mode": "focus",  # focus, break
+    "pomodoro_time_left": 1500,  # seconds
+    "pomodoro_rounds_done": 0,
+    "pomodoro_task_name": "Deep Work Session",
+
+    # 6. Sci-Fi Starship / Terminal HUD
+    "scifi_theme": "tactical_blue",  # tactical_blue, red_alert, alien_emerald, orange_hazard
+    "scifi_show_radar": True,
+    "scifi_ship_name": "GK104-PRO ORBITAL",
+    "scifi_show_diagnostics": True,
+
+    # 7. Image Settings
     "image_path": "",
     "image_fit": "cover",  # cover, contain, stretch
     "image_brightness": 100,
     "image_contrast": 100,
     
-    # GIF Settings
+    # 8. GIF Settings
     "gif_path": "",
     "gif_speed": 1.0,
     
-    # Slideshow Settings
+    # 9. Slideshow Settings
     "slideshow_images": [],
     "slideshow_interval": 5,
     "slideshow_shuffle": False,
-    "slideshow_transition": "instant",  # instant, fade
+    "slideshow_transition": "instant",
     
-    # Clock Settings
+    # 10. Clock Settings
     "clock_style": "cyberpunk",  # cyberpunk, digital_modern, retro_lcd, minimal, analog
     "clock_24h": True,
     "clock_show_seconds": True,
     "clock_show_date": True,
     "clock_accent_color": "#00f0ff",
     
-    # Calendar Settings
+    # 11. Calendar Settings
     "calendar_theme": "neon_cyan",  # neon_cyan, purple_matrix, amoled_gold, minimal_mono
     "calendar_show_clock": True,
     
-    # Resource Usage Settings
+    # 12. Resource Usage Settings
     "usage_style": "neon_rings",  # neon_rings, bars, cards
     "usage_show_cpu": True,
     "usage_show_ram": True,
     "usage_show_gpu": True,
     "usage_show_net": True,
     
-    # Temperatures Settings
+    # 13. Temperatures Settings
     "temp_style": "cards",  # cards, vertical_bars, radial
     "temp_show_cpu": True,
     "temp_show_gpu": True,
@@ -51,7 +92,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "temp_warn_cpu": 75,
     "temp_crit_cpu": 85,
     
-    # Custom / Hybrid Dashboard Settings
+    # 14. Custom / Hybrid Dashboard Settings
     "custom_background_type": "gradient",  # gradient, solid, image
     "custom_bg_image": "",
     "custom_show_clock": True,
@@ -61,14 +102,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "custom_show_gpu_bar": True,
     "custom_show_temps": True,
     "custom_show_net": False,
+    "custom_user_title": "MY RIG STATUS",
     
-    # Network & Serial
-    "tcp_server_enabled": True,
-    "tcp_port": 1648,
-    "tcp_host": "0.0.0.0",
-    "serial_port": "/dev/ttyACM0",
-    "serial_baudrate": 115200,
-    "serial_auto_connect": False
+    # USB Streamer Settings
+    "usb_stream_port": "/dev/ttyACM0",
+    "usb_stream_baud": 115200,
+    "usb_stream_fps": 30,
+    "usb_stream_quality": 85,
+    "usb_stream_auto_start": True
 }
 
 class ConfigManager:

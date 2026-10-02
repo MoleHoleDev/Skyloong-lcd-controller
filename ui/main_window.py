@@ -1,101 +1,94 @@
 import os
 import sys
 import time
+import glob
 import threading
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QTabWidget,
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget,
     QLabel, QStatusBar, QSystemTrayIcon, QMenu, QMessageBox,
-    QPushButton, QGroupBox, QGridLayout, QScrollArea, QDialog, QTextBrowser,
-    QCheckBox
+    QPushButton, QGroupBox, QGridLayout, QScrollArea, QDialog,
+    QSlider, QComboBox, QSplitter, QFrame
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QAction, QPixmap, QImage
 
 from lcd_core.config_manager import ConfigManager
 from lcd_core.system_monitor import SystemMonitor
 from lcd_core.screen_renderer import ScreenRenderer
-from lcd_core.network_server import NetworkServer
 from lcd_core.serial_controller import SerialController
-from lcd_core.esp_manager import ESPManager
-from lcd_core.http_controller import HTTPController
+from lcd_core.usb_streamer import USBStreamController, USBStreamThread
 
 from ui.widgets.lcd_preview import LCDPreviewWidget
+from ui.widgets.screen_gallery import ScreenGalleryWidget, SCREENS_CATALOG
+from ui.widgets.retro_synthwave_panel import RetroSynthwavePanel
+from ui.widgets.matrix_rain_panel import MatrixRainPanel
+from ui.widgets.audio_visualizer_panel import AudioVisualizerPanel
+from ui.widgets.dual_gauges_panel import DualGaugesPanel
+from ui.widgets.pomodoro_panel import PomodoroPanel
+from ui.widgets.scifi_terminal_panel import ScifiTerminalPanel
+from ui.widgets.custom_tab import CustomTab
+from ui.widgets.system_tab import SystemTab
+from ui.widgets.clock_tab import ClockTab
+from ui.widgets.calendar_tab import CalendarTab
 from ui.widgets.image_tab import ImageTab
 from ui.widgets.gif_tab import GifTab
 from ui.widgets.slideshow_tab import SlideshowTab
-from ui.widgets.clock_tab import ClockTab
-from ui.widgets.calendar_tab import CalendarTab
-from ui.widgets.system_tab import SystemTab
-from ui.widgets.custom_tab import CustomTab
-from ui.widgets.usb_stream_tab import USBStreamTab
-from ui.widgets.settings_tab import SettingsTab
-from lcd_core.usb_streamer import USBStreamController
 from ui.theme import STYLE_SHEET
+
 
 class MainWindow(QMainWindow):
     """
-    Main application window for Skyloong LCD Controller.
+    Overhauled modern workstation for Skyloong GK104 Pro USB LCD Screen.
+    Simple two-column layout: Left Screen Gallery + Live 320x240 LCD Preview,
+    Right dedicated Screen Settings + USB Stream Control Engine.
     """
 
     def __init__(self, daemon_mode: bool = False):
         super().__init__()
-        self.setWindowTitle("Skyloong LCD Controller — GK104 Pro Studio")
-        self.resize(1080, 720)
-        self.setMinimumSize(860, 580)
+        self.setWindowTitle("Skyloong LCD Controller — GK104 Pro Studio (320x240)")
+        self.resize(1180, 780)
+        self.setMinimumSize(960, 640)
         self.setStyleSheet(STYLE_SHEET)
 
-        # Initialize Logic & Core Engines
+        # Initialize Core Engines
         self.config_mgr = ConfigManager()
         self.monitor = SystemMonitor()
         self.renderer = ScreenRenderer(
-            width=self.config_mgr.get("width", 240),
+            width=self.config_mgr.get("width", 320),
             height=self.config_mgr.get("height", 240)
         )
-        self.net_server = NetworkServer(
-            host=self.config_mgr.get("tcp_host", "0.0.0.0"),
-            port=self.config_mgr.get("tcp_port", 1648)
-        )
-        self.net_server.metrics_getter = self.monitor.get_all_metrics
-
         self.serial_ctrl = SerialController(
-            port=self.config_mgr.get("serial_port", "/dev/ttyACM0"),
-            baudrate=self.config_mgr.get("serial_baudrate", 115200)
-        )
-        self.http_ctrl = HTTPController(
-            screen_ip=self.config_mgr.get("screen_ip", "192.168.1.115")
+            port=self.config_mgr.get("usb_stream_port", "/dev/ttyACM0"),
+            baudrate=self.config_mgr.get("usb_stream_baud", 115200)
         )
         self.usb_stream_ctrl = USBStreamController(
-            port=self.config_mgr.get("usb_stream_port", "/dev/ttyACM0")
+            port=self.config_mgr.get("usb_stream_port", "/dev/ttyACM0"),
+            baudrate=self.config_mgr.get("usb_stream_baud", 115200)
         )
+        self.stream_thread: USBStreamThread = None
 
-        # Performance / FPS measurement
-        self.frame_count = 0
-        self.fps_last_time = time.time()
         self.current_metrics = self.monitor.get_all_metrics()
-        self.is_sending_frame = False
+        self.fps_frame_counter = 0
+        self.fps_timer_last = time.time()
 
         # Build UI
         self.setup_ui()
         self.setup_tray()
 
-        # Start Telemetry & Rendering Timers
-        # Render Loop at ~30 FPS (33ms)
+        # Timers
+        # Render Loop (~30 FPS, 33ms)
         self.render_timer = QTimer(self)
         self.render_timer.timeout.connect(self.on_render_tick)
         self.render_timer.start(33)
 
-        # Metrics collection every 500ms
+        # Metrics collection (every 500ms)
         self.metrics_timer = QTimer(self)
         self.metrics_timer.timeout.connect(self.on_metrics_tick)
         self.metrics_timer.start(500)
 
-        # Live Wi-Fi Sync Timer (e.g. 2000ms)
-        self.sync_timer = QTimer(self)
-        self.sync_timer.timeout.connect(self.on_sync_tick)
-
-        # Autostart TCP server if enabled
-        if self.config_mgr.get("tcp_server_enabled", True):
-            self.net_server.start()
+        # Auto-start USB streaming if enabled
+        if self.config_mgr.get("usb_stream_auto_start", True):
+            QTimer.singleShot(800, self.auto_start_usb_streaming)
 
         if daemon_mode:
             self.hide()
@@ -103,122 +96,63 @@ class MainWindow(QMainWindow):
     def setup_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(12, 10, 12, 10)
+        main_layout.setSpacing(10)
 
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(12)
+        # -------------------------------------------------------------
+        # TOP GLOBAL BANNER & STREAM CONTROLLER
+        # -------------------------------------------------------------
+        top_bar = QFrame()
+        top_bar.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #111827, stop:1 #0f172a);
+                border: 1px solid #1e293b;
+                border-radius: 8px;
+            }
+        """)
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(12, 8, 12, 8)
+        top_layout.setSpacing(12)
 
-        # Left / Middle Pane: Tabs for features
-        self.tabs = QTabWidget()
-        self.tabs.setTabPosition(QTabWidget.North)
-        self.tabs.setUsesScrollButtons(True)
+        # App Logo & Model Badge
+        app_title = QLabel("⚡ SKYLOONG GK104 PRO")
+        app_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #00f0ff; letter-spacing: 0.5px;")
+        top_layout.addWidget(app_title)
 
-        # 1. Custom / Hybrid Dashboard ("Do wyboru")
-        self.custom_tab = CustomTab(self.config_mgr)
-        self.custom_tab.config_changed.connect(self.on_config_updated)
-        self.tabs.addTab(self.custom_tab, "🧩 Do wyboru")
+        sub_badge = QLabel("USB LCD 320×240")
+        sub_badge.setStyleSheet("background: #0369a1; color: #ffffff; font-weight: bold; font-size: 10px; padding: 2px 6px; border-radius: 4px;")
+        top_layout.addWidget(sub_badge)
 
-        # 2. System Usage & Temperatures
-        self.system_tab = SystemTab(self.config_mgr)
-        self.system_tab.config_changed.connect(self.on_config_updated)
-        self.tabs.addTab(self.system_tab, "📊 Zużycie i Temp")
+        top_layout.addStretch()
 
-        # 3. Clock Tab
-        self.clock_tab = ClockTab(self.config_mgr)
-        self.clock_tab.config_changed.connect(self.on_config_updated)
-        self.tabs.addTab(self.clock_tab, "🕒 Zegar")
+        # USB Stream Status Pill
+        self.stream_status_pill = QLabel("⚪ USB Stream: Rozłączony")
+        self.stream_status_pill.setStyleSheet("color: #94a3b8; font-weight: bold; background: #0f172a; padding: 5px 10px; border-radius: 6px; border: 1px solid #1e293b;")
+        top_layout.addWidget(self.stream_status_pill)
 
-        # 4. Calendar Tab
-        self.calendar_tab = CalendarTab(self.config_mgr)
-        self.calendar_tab.config_changed.connect(self.on_config_updated)
-        self.tabs.addTab(self.calendar_tab, "📅 Kalendarz")
+        # Brightness Slider
+        bright_box = QHBoxLayout()
+        bright_box.setSpacing(6)
+        bright_box.addWidget(QLabel("☀️"))
+        self.bright_slider = QSlider(Qt.Horizontal)
+        self.bright_slider.setRange(10, 255)
+        self.bright_slider.setValue(self.config_mgr.get("brightness", 200))
+        self.bright_slider.setFixedWidth(100)
+        self.bright_slider.valueChanged.connect(self.on_brightness_changed)
+        bright_box.addWidget(self.bright_slider)
+        top_layout.addLayout(bright_box)
 
-        # 5. Image Tab
-        self.image_tab = ImageTab(self.config_mgr)
-        self.image_tab.config_changed.connect(self.on_config_updated)
-        self.tabs.addTab(self.image_tab, "🖼️ Zdjęcia")
-
-        # 6. GIF Tab
-        self.gif_tab = GifTab(self.config_mgr)
-        self.gif_tab.config_changed.connect(self.on_config_updated)
-        self.tabs.addTab(self.gif_tab, "🎞️ GIFy")
-
-        # 7. Slideshow Tab
-        self.slideshow_tab = SlideshowTab(self.config_mgr)
-        self.slideshow_tab.config_changed.connect(self.on_config_updated)
-        self.tabs.addTab(self.slideshow_tab, "📋 Pokaz slajdów")
-
-        # 8. USB Live Stream Tab
-        self.usb_stream_tab = USBStreamTab(self.usb_stream_ctrl, self.get_current_pil_frame, parent=self)
-        self.tabs.addTab(self.usb_stream_tab, "⚡ USB Stream")
-
-        # 9. Settings & Connections Tab
-        self.settings_tab = SettingsTab(self.config_mgr, self.net_server, self.serial_ctrl, self.http_ctrl)
-        self.settings_tab.config_changed.connect(self.on_config_updated)
-        self.tabs.addTab(self.settings_tab, "⚙️ Ustawienia")
-
-        self.tabs.currentChanged.connect(self.on_tab_changed)
-        main_layout.addWidget(self.tabs, stretch=3)
-
-        # Right Pane: LCD Preview Box & Mode Switch Controller
-        right_panel = QVBoxLayout()
-        right_panel.setContentsMargins(0, 0, 0, 0)
-        right_panel.setSpacing(10)
-
-        self.preview_widget = LCDPreviewWidget()
-        right_panel.addWidget(self.preview_widget)
-
-        # Mode Controller Group
-        mode_box = QGroupBox("🎮 Sterowanie & Wybór trybu ekranu")
-        mode_box_layout = QVBoxLayout(mode_box)
-        mode_box_layout.setContentsMargins(10, 10, 10, 10)
-        mode_box_layout.setSpacing(8)
-
-        # Active Mode Banner
-        self.active_mode_lbl = QLabel("🟢 Aktywny na żywo: 🧩 Do wyboru")
-        self.active_mode_lbl.setStyleSheet(
-            "font-weight: bold; color: #00f0ff; background: #0f172a; padding: 6px 10px; border-radius: 6px; border: 1px solid #1e293b; font-size: 12px;"
-        )
-        self.active_mode_lbl.setAlignment(Qt.AlignCenter)
-        mode_box_layout.addWidget(self.active_mode_lbl)
-
-        # Quick Mode Buttons Grid
-        grid = QGridLayout()
-        grid.setSpacing(6)
-
-        mode_buttons = [
-            ("🧩 Hybryda", "custom", 0),
-            ("📊 Zużycie", "usage", 1),
-            ("🕒 Zegar", "clock", 2),
-            ("📅 Kalendarz", "calendar", 3),
-            ("🖼️ Zdjęcie", "image", 4),
-            ("🎞️ Animacja GIF", "gif", 5),
-            ("📋 Pokaz slajdów", "slideshow", 6),
-        ]
-
-        for i, (label, mode_key, tab_idx) in enumerate(mode_buttons):
-            row = i // 2
-            col = i % 2
-            btn = QPushButton(label)
-            btn.setStyleSheet("font-size: 11px; padding: 6px 8px;")
-            btn.clicked.connect(lambda _, m=mode_key, t=tab_idx: self.switch_to_mode(m, t))
-            if i == len(mode_buttons) - 1 and col == 0:
-                grid.addWidget(btn, row, col, 1, 2)
-            else:
-                grid.addWidget(btn, row, col)
-
-        mode_box_layout.addLayout(grid)
-
-        # Direct USB Live Stream Toggle Button
-        self.usb_stream_toggle_btn = QPushButton("🚀 Rozpocznij Strumieniowanie USB")
-        self.usb_stream_toggle_btn.setObjectName("AccentButton")
-        self.usb_stream_toggle_btn.setStyleSheet("""
+        # Main Big Stream Toggle Button
+        self.stream_toggle_btn = QPushButton("🚀 Rozpocznij Strumieniowanie USB")
+        self.stream_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self.stream_toggle_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
                 color: #ffffff;
                 font-weight: bold;
-                font-size: 13px;
-                padding: 10px;
+                font-size: 12px;
+                padding: 8px 16px;
                 border-radius: 6px;
                 border: 1px solid #34d399;
             }
@@ -226,454 +160,533 @@ class MainWindow(QMainWindow):
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
             }
         """)
-        self.usb_stream_toggle_btn.clicked.connect(self.toggle_main_usb_streaming)
-        mode_box_layout.addWidget(self.usb_stream_toggle_btn)
+        self.stream_toggle_btn.clicked.connect(self.toggle_usb_streaming)
+        top_layout.addWidget(self.stream_toggle_btn)
 
-        # Push To Screen Button (Single Frame / Wi-Fi)
-        self.push_to_screen_btn = QPushButton("📡 Wyślij bieżącą klatkę na ekran (USB / Wi-Fi)")
-        self.push_to_screen_btn.setStyleSheet("""
-            QPushButton {
-                background: #0f172a;
-                color: #38bdf8;
-                font-weight: bold;
-                font-size: 11px;
-                padding: 7px;
-                border-radius: 6px;
-                border: 1px solid #0284c7;
-            }
-            QPushButton:hover {
-                background: #0284c7;
-                color: #ffffff;
-            }
-        """)
-        self.push_to_screen_btn.clicked.connect(lambda: self.send_current_view_to_screen(silent=False))
-        mode_box_layout.addWidget(self.push_to_screen_btn)
+        # Flasher / Tools Button
+        self.tools_btn = QPushButton("⚙️ Opcje / Flash")
+        self.tools_btn.setStyleSheet("background: #1e293b; color: #94a3b8; font-size: 11px; padding: 6px 10px;")
+        self.tools_btn.clicked.connect(self.open_flasher_dialog)
+        top_layout.addWidget(self.tools_btn)
 
-        # Live Sync Checkbox (Wi-Fi)
-        self.live_sync_cb = QCheckBox("🔄 Wi-Fi Sync (co 2s)")
-        self.live_sync_cb.setStyleSheet("color: #94a3b8; font-size: 10px; padding: 2px;")
-        self.live_sync_cb.toggled.connect(self.on_live_sync_toggled)
-        mode_box_layout.addWidget(self.live_sync_cb)
+        main_layout.addWidget(top_bar)
 
-        # Quick USB Switch Button
-        self.usb_quick_switch_btn = QPushButton("⚡ Przełącz tryb fabryczny (USB `)")
-        self.usb_quick_switch_btn.setToolTip("Wysyła sygnał '`' (backtick) bezpośrednio przez kabel USB (/dev/ttyACM*), co natychmiast przełącza ekran na następną aplikację (Zegar -> APS -> GIF -> Pogoda -> Sysinfo).")
-        self.usb_quick_switch_btn.setStyleSheet("""
-            QPushButton {
-                background: #0f172a;
-                color: #94a3b8;
-                font-size: 10px;
-                padding: 5px;
-                border-radius: 6px;
-                border: 1px solid #1e293b;
-            }
-            QPushButton:hover {
-                background: #1e293b;
-                color: #ffffff;
-            }
-        """)
-        self.usb_quick_switch_btn.clicked.connect(self.on_usb_quick_switch)
-        mode_box_layout.addWidget(self.usb_quick_switch_btn)
+        # -------------------------------------------------------------
+        # MAIN 2-COLUMN WORKSPACE
+        # -------------------------------------------------------------
+        split_layout = QHBoxLayout()
+        split_layout.setSpacing(14)
 
-        # Apply Current Tab Button
-        self.apply_btn = QPushButton("🚀 Ustaw obecną zakładkę jako aktywną")
-        self.apply_btn.clicked.connect(self.apply_current_tab_mode)
-        mode_box_layout.addWidget(self.apply_btn)
+        # =============================================================
+        # LEFT COLUMN: Live Preview (Top) + Screen Gallery (Bottom)
+        # =============================================================
+        left_col = QWidget()
+        left_layout = QVBoxLayout(left_col)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(10)
 
-        # Guide Dialog Button
-        self.guide_btn = QPushButton("📖 Instrukcja obsługi ekranika GK104")
-        self.guide_btn.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 11px; padding: 5px;")
-        self.guide_btn.clicked.connect(self.show_screen_guide)
-        mode_box_layout.addWidget(self.guide_btn)
+        # 1. Live Virtual LCD Preview (320x240)
+        preview_box = QFrame()
+        preview_box.setStyleSheet("background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 6px;")
+        preview_box_layout = QVBoxLayout(preview_box)
+        preview_box_layout.setContentsMargins(8, 8, 8, 8)
+        preview_box_layout.setSpacing(8)
 
-        right_panel.addWidget(mode_box)
-        right_panel.addStretch()
-        main_layout.addLayout(right_panel, stretch=2)
+        self.lcd_preview = LCDPreviewWidget()
+        preview_box_layout.addWidget(self.lcd_preview)
 
-        # Status Bar
+        # Quick toolbar under preview
+        quick_tools = QHBoxLayout()
+        self.active_mode_lbl = QLabel("Aktywny: Retro Synthwave")
+        self.active_mode_lbl.setStyleSheet("color: #00f0ff; font-weight: bold; font-size: 12px;")
+        quick_tools.addWidget(self.active_mode_lbl)
+
+        quick_tools.addStretch()
+
+        self.switch_raw_btn = QPushButton("⚡ Przełącznik fabryczny (USB `)")
+        self.switch_raw_btn.setToolTip("Wysyła sygnał '`' po USB CDC do modułu")
+        self.switch_raw_btn.setStyleSheet("background: #1e293b; color: #94a3b8; font-size: 10px; padding: 4px 8px;")
+        self.switch_raw_btn.clicked.connect(self.send_usb_backtick_switch)
+        quick_tools.addWidget(self.switch_raw_btn)
+
+        preview_box_layout.addLayout(quick_tools)
+        left_layout.addWidget(preview_box)
+
+        # 2. Screen Gallery
+        self.gallery = ScreenGalleryWidget(current_mode=self.config_mgr.get("current_mode", "retro_synthwave"))
+        self.gallery.screen_changed.connect(self.on_screen_selected)
+        left_layout.addWidget(self.gallery, 1)
+
+        split_layout.addWidget(left_col, 56)
+
+        # =============================================================
+        # RIGHT COLUMN: Dedicated Screen Settings & USB Device Controls
+        # =============================================================
+        right_col = QWidget()
+        right_layout = QVBoxLayout(right_col)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)
+
+        # Settings Container Card
+        settings_card = QFrame()
+        settings_card.setStyleSheet("background: #111827; border: 1px solid #1e293b; border-radius: 8px;")
+        settings_card_layout = QVBoxLayout(settings_card)
+        settings_card_layout.setContentsMargins(12, 10, 12, 10)
+        settings_card_layout.setSpacing(10)
+
+        # Header of right column
+        self.settings_header_lbl = QLabel("⚙️ Ustawienia ekranu")
+        self.settings_header_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #38bdf8;")
+        settings_card_layout.addWidget(self.settings_header_lbl)
+
+        # Stack of individual screen settings panels
+        self.settings_stack = QStackedWidget()
+        self.panels = {}
+
+        # 0: retro_synthwave
+        self.panels["retro_synthwave"] = RetroSynthwavePanel(self.config_mgr)
+        self.panels["retro_synthwave"].settings_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["retro_synthwave"])
+
+        # 1: matrix_rain
+        self.panels["matrix_rain"] = MatrixRainPanel(self.config_mgr)
+        self.panels["matrix_rain"].settings_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["matrix_rain"])
+
+        # 2: audio_visualizer
+        self.panels["audio_visualizer"] = AudioVisualizerPanel(self.config_mgr)
+        self.panels["audio_visualizer"].settings_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["audio_visualizer"])
+
+        # 3: dual_gauges
+        self.panels["dual_gauges"] = DualGaugesPanel(self.config_mgr)
+        self.panels["dual_gauges"].settings_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["dual_gauges"])
+
+        # 4: pomodoro
+        self.panels["pomodoro"] = PomodoroPanel(self.config_mgr)
+        self.panels["pomodoro"].settings_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["pomodoro"])
+
+        # 5: scifi_terminal
+        self.panels["scifi_terminal"] = ScifiTerminalPanel(self.config_mgr)
+        self.panels["scifi_terminal"].settings_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["scifi_terminal"])
+
+        # 6: custom
+        self.panels["custom"] = CustomTab(self.config_mgr)
+        self.panels["custom"].config_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["custom"])
+
+        # 7: usage
+        self.panels["usage"] = SystemTab(self.config_mgr)
+        self.panels["usage"].config_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["usage"])
+
+        # 8: temperatures
+        self.panels["temperatures"] = self.panels["usage"]  # Shared telemetry settings
+
+        # 9: clock
+        self.panels["clock"] = ClockTab(self.config_mgr)
+        self.panels["clock"].config_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["clock"])
+
+        # 10: calendar
+        self.panels["calendar"] = CalendarTab(self.config_mgr)
+        self.panels["calendar"].config_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["calendar"])
+
+        # 11: image
+        self.panels["image"] = ImageTab(self.config_mgr)
+        self.panels["image"].config_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["image"])
+
+        # 12: gif
+        self.panels["gif"] = GifTab(self.config_mgr)
+        self.panels["gif"].config_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["gif"])
+
+        # 13: slideshow
+        self.panels["slideshow"] = SlideshowTab(self.config_mgr)
+        self.panels["slideshow"].config_changed.connect(self.on_settings_modified)
+        self.settings_stack.addWidget(self.panels["slideshow"])
+
+        settings_card_layout.addWidget(self.settings_stack, 1)
+        right_layout.addWidget(settings_card, 1)
+
+        # Bottom Stream Param Toolbar
+        stream_params_card = QFrame()
+        stream_params_card.setStyleSheet("background: #0f172a; border: 1px solid #1e293b; border-radius: 8px;")
+        sp_layout = QVBoxLayout(stream_params_card)
+        sp_layout.setContentsMargins(10, 8, 10, 8)
+        sp_layout.setSpacing(6)
+
+        sp_header = QLabel("⚡ Parametry Strumienia USB")
+        sp_header.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
+        sp_layout.addWidget(sp_header)
+
+        params_row = QHBoxLayout()
+        params_row.setSpacing(10)
+
+        # Port Selector
+        params_row.addWidget(QLabel("Port:"))
+        self.port_combo = QComboBox()
+        self.refresh_ports_list()
+        self.port_combo.currentIndexChanged.connect(self.on_port_changed)
+        params_row.addWidget(self.port_combo, 1)
+
+        # Refresh Ports Button
+        refresh_ports_btn = QPushButton("🔄")
+        refresh_ports_btn.setFixedWidth(30)
+        refresh_ports_btn.setStyleSheet("padding: 4px;")
+        refresh_ports_btn.clicked.connect(self.refresh_ports_list)
+        params_row.addWidget(refresh_ports_btn)
+
+        # FPS Selector
+        params_row.addWidget(QLabel("FPS:"))
+        self.fps_combo = QComboBox()
+        for f in [15, 30, 45, 60]:
+            self.fps_combo.addItem(f"{f} FPS", f)
+        cur_fps = self.config_mgr.get("usb_stream_fps", 30)
+        idx_f = [15, 30, 45, 60].index(cur_fps) if cur_fps in [15, 30, 45, 60] else 1
+        self.fps_combo.setCurrentIndex(idx_f)
+        self.fps_combo.currentIndexChanged.connect(self.on_stream_fps_changed)
+        params_row.addWidget(self.fps_combo)
+
+        # Quality
+        params_row.addWidget(QLabel("Jakość:"))
+        self.quality_combo = QComboBox()
+        for q in [70, 80, 85, 90, 95]:
+            self.quality_combo.addItem(f"{q}%", q)
+        cur_q = self.config_mgr.get("usb_stream_quality", 85)
+        idx_q = [70, 80, 85, 90, 95].index(cur_q) if cur_q in [70, 80, 85, 90, 95] else 2
+        self.quality_combo.setCurrentIndex(idx_q)
+        self.quality_combo.currentIndexChanged.connect(self.on_stream_quality_changed)
+        params_row.addWidget(self.quality_combo)
+
+        sp_layout.addLayout(params_row)
+        right_layout.addWidget(stream_params_card)
+
+        split_layout.addWidget(right_col, 44)
+        main_layout.addLayout(split_layout, 1)
+
+        # -------------------------------------------------------------
+        # STATUS BAR
+        # -------------------------------------------------------------
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        
-        self.sb_stats_lbl = QLabel("CPU: 0% | RAM: 0% | GPU: 0% | Temp: --°C")
+
+        self.sb_stats_lbl = QLabel("CPU: 0% | RAM: 0% | GPU: 0%")
         self.sb_stats_lbl.setStyleSheet("color: #94a3b8; font-weight: 500;")
         self.status_bar.addWidget(self.sb_stats_lbl, 1)
 
-        self.sb_usb_lbl = QLabel("⚡ USB Stream: ⚪ Rozłączony")
-        self.sb_usb_lbl.setStyleSheet("color: #94a3b8; font-weight: bold; margin-right: 10px;")
-        self.status_bar.addPermanentWidget(self.sb_usb_lbl)
+        self.sb_stream_lbl = QLabel("⚡ USB Engine: Ready")
+        self.sb_stream_lbl.setStyleSheet("color: #10b981; font-weight: bold; margin-right: 12px;")
+        self.status_bar.addPermanentWidget(self.sb_stream_lbl)
 
-        self.sb_net_lbl = QLabel("🌐 TCP: Port 1648 (Aktywny)")
-        self.sb_net_lbl.setStyleSheet("color: #10b981; font-weight: bold;")
-        self.status_bar.addPermanentWidget(self.sb_net_lbl)
+        # Set initial screen
+        self.on_screen_selected(self.config_mgr.get("current_mode", "retro_synthwave"))
 
-        # Connect USB stream tab signals
-        self.usb_stream_tab.streaming_toggled.connect(self.on_usb_streaming_toggled)
-
-        # Autostart USB stream if available
-        QTimer.singleShot(600, self.auto_start_usb_stream_if_available)
-
-        # Set initial tab according to config
-        mode_to_tab = {
-            "custom": 0,
-            "usage": 1,
-            "temperatures": 1,
-            "clock": 2,
-            "calendar": 3,
-            "image": 4,
-            "gif": 5,
-            "slideshow": 6
-        }
-        initial_mode = self.config_mgr.get("current_mode", "custom")
-        if initial_mode in mode_to_tab:
-            self.tabs.setCurrentIndex(mode_to_tab[initial_mode])
-        self.update_active_mode_badge(initial_mode)
-
-    def setup_tray(self):
-        self.tray_icon = QSystemTrayIcon(self)
+    def on_screen_selected(self, mode_id: str):
+        """Switches active rendering mode and opens the corresponding settings panel."""
+        self.config_mgr.set("current_mode", mode_id)
         
-        # Default placeholder icon or custom
-        pix = QPixmap(32, 32)
-        pix.fill(Qt.transparent)
-        self.tray_icon.setIcon(QIcon(pix))
+        # Find screen title
+        title = mode_id
+        for s in SCREENS_CATALOG:
+            if s["id"] == mode_id:
+                title = f"{s['icon']} {s['title']}"
+                break
 
-        tray_menu = QMenu()
-        show_action = QAction("Otwórz panel sterowania", self)
-        show_action.triggered.connect(self.show_and_activate)
-        tray_menu.addAction(show_action)
+        self.active_mode_lbl.setText(f"Aktywny: {title}")
+        self.settings_header_lbl.setText(f"⚙️ Ustawienia: {title}")
 
-        tray_menu.addSeparator()
-        quit_action = QAction("Zakończ program", self)
-        quit_action.triggered.connect(self.close_application)
-        tray_menu.addAction(quit_action)
+        # Switch stack panel
+        panel = self.panels.get(mode_id)
+        if panel and self.settings_stack.indexOf(panel) >= 0:
+            self.settings_stack.setCurrentWidget(panel)
 
-        self.tray_icon.setContextMenu(tray_menu)
-        self.tray_icon.activated.connect(self.on_tray_activated)
-        self.tray_icon.show()
-
-    def get_current_pil_frame(self):
-        """Returns current rendered PIL frame from active mode."""
-        frame = self.renderer.get_current_frame()
-        if not frame:
-            frame = self.renderer.render(self.config_mgr.config, self.current_metrics)
-        return frame
-
-    def on_tab_changed(self, index: int):
-        tab_to_mode = {
-            0: "custom",
-            1: "usage",
-            2: "clock",
-            3: "calendar",
-            4: "image",
-            5: "gif",
-            6: "slideshow",
-            7: self.config_mgr.get("current_mode", "custom"),
-            8: self.config_mgr.get("current_mode", "custom")
-        }
-        if index in tab_to_mode and index not in (7, 8):
-            new_mode = tab_to_mode[index]
-            self.config_mgr.set("current_mode", new_mode)
-            self.update_active_mode_badge(new_mode)
-
-    def switch_to_mode(self, mode_key: str, tab_idx: int):
-        """Switches both the current tab and active rendering mode."""
-        self.tabs.setCurrentIndex(tab_idx)
-        self.config_mgr.set("current_mode", mode_key)
-        self.update_active_mode_badge(mode_key)
-
-    def apply_current_tab_mode(self):
-        """Applies mode corresponding to current selected tab."""
-        idx = self.tabs.currentIndex()
-        self.on_tab_changed(idx)
-        QMessageBox.information(
-            self,
-            "Aktywacja trybu",
-            f"Aktywowano widok: <b>{self.config_mgr.get('current_mode', 'custom').upper()}</b>!<br>"
-            "Ekran oraz podgląd na żywo wyświetlają teraz wybrany szablon."
-        )
-
-    def update_active_mode_badge(self, mode_key: str):
-        mode_names = {
-            "custom": "🧩 Do wyboru (Hybryda)",
-            "usage": "📊 Zużycie & Temp",
-            "clock": "🕒 Zegar",
-            "calendar": "📅 Kalendarz",
-            "image": "🖼️ Zdjęcia",
-            "gif": "🎞️ GIFy",
-            "slideshow": "📋 Pokaz slajdów",
-            "temperatures": "🌡️ Temperatury"
-        }
-        name = mode_names.get(mode_key, mode_key.capitalize())
-        self.active_mode_lbl.setText(f"🟢 Aktywny na żywo: {name}")
-
-    def on_usb_quick_switch(self):
-        """Sends backtick over USB to switch to next screen app."""
-        ok, msg = self.serial_ctrl.switch_app()
-        if ok:
-            self.usb_quick_switch_btn.setText("✅ Przełączono (USB)")
-            self.statusBar().showMessage("Wysłano sygnał zmiany trybu ekranu przez kabel USB (`)...", 3000)
-        else:
-            self.usb_quick_switch_btn.setText("⚠️ Błąd USB")
-            self.statusBar().showMessage(f"Błąd USB: {msg}", 4000)
-            QMessageBox.warning(self, "Błąd przełączania USB", f"Nie udało się wysłać sygnału przez USB:\n{msg}\n\nUpewnij się, że moduł ekranu jest wpięty kablem USB do komputera.")
-        QTimer.singleShot(2000, lambda: self.usb_quick_switch_btn.setText("⚡ Przełącz ekran fizyczny (USB `)"))
-
-    def show_screen_guide(self):
-        """Displays visual guide on how to switch physical GK104 Pro screen modes."""
-        ips = ESPManager.get_pc_network_ips()
-        primary_ip = ips[0]['ip'] if ips else "192.168.1.173"
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Instrukcja: Przełączanie trybów na ekranie Skyloong GK104 Pro")
-        dlg.resize(640, 560)
-        dlg.setStyleSheet(STYLE_SHEET)
-
-        dlg_layout = QVBoxLayout(dlg)
-        dlg_layout.setContentsMargins(14, 14, 14, 14)
-        dlg_layout.setSpacing(12)
-
-        tb = QTextBrowser()
-        tb.setOpenExternalLinks(False)
-        tb.setStyleSheet("""
-            QTextBrowser {
-                background-color: #0f172a;
-                color: #e2e8f0;
-                border: 1px solid #1e293b;
-                border-radius: 8px;
-                padding: 12px;
-                font-size: 13px;
-                line-height: 1.5;
-            }
-        """)
-
-        html_content = f"""
-        <h3 style="color: #00f0ff; margin-top:0;">🎮 Jak przełączać tryby na fizycznym ekranie Skyloong GK104 Pro?</h3>
-        
-        <p>Ekran klawiatury to moduł <b>ESP32-S3</b>, który posiada kilka wbudowanych trybów pracy (Zegar &rarr; APS &rarr; GIF &rarr; Pogoda &rarr; PC Monitor). Poniżej sposoby sterowania:</p>
-
-        <h4 style="color: #38bdf8;">1. Bezpośrednio z programu przez kabel USB (Najwygodniejsza metoda):</h4>
-        <ul>
-            <li>Kliknij przycisk <b>⚡ Przełącz ekran fizyczny (USB `)</b> na bocznym panelu programu lub w zakładce <i>Ustawienia</i>.</li>
-            <li>Aplikacja wyśle znak <code>`</code> (backtick) bezpośrednio przez port szeregowy USB (<code>/dev/ttyACM*</code>), co natychmiast przełączy ekran na kolejną aplikację bez dotykania klawiatury!</li>
-        </ul>
-
-        <h4 style="color: #38bdf8;">2. Skrót klawiszowy na klawiaturze (gdy ekran jest wpięty w slot):</h4>
-        <ul>
-            <li>Naciśnij kombinację <b>Fn + ~</b> (Fn + tylda obok klawisza 1).</li>
-            <li>Każde naciśnięcie przeskakuje do kolejnego widoku w karuzeli.</li>
-        </ul>
-
-        <h4 style="color: #38bdf8;">3. Połączenie Wi-Fi i PC Monitor (Port 1648):</h4>
-        <ul>
-            <li>W zakładce <i>Ustawienia</i> wgraj dane sieci Wi-Fi i IP komputera przez przycisk <b>Wgraj Wi-Fi i IP do ekranu (przez USB)</b>.</li>
-            <li>Uruchom <b>Serwer TCP (Port 1648)</b>.</li>
-            <li>Po przełączeniu na tryb <b>PC Monitor</b>, ekran natychmiast połączy się z aplikacją i zacznie wyświetlać zużycie procesora i pamięci RAM!</li>
-        </ul>
-        """
-
-        tb.setHtml(html_content)
-        dlg_layout.addWidget(tb)
-
-        close_btn = QPushButton("Rozumiem, zamknij")
-        close_btn.setObjectName("AccentButton")
-        close_btn.clicked.connect(dlg.accept)
-        dlg_layout.addWidget(close_btn, alignment=Qt.AlignCenter)
-
-        dlg.exec()
-
-    def on_config_updated(self):
-        """Called whenever settings change."""
+    def on_settings_modified(self):
+        """Triggered when any settings panel changes a value."""
         pass
 
-    def toggle_main_usb_streaming(self):
-        """Toggles USB live frame streaming directly from the main panel."""
-        if self.usb_stream_tab.stream_thread and self.usb_stream_tab.stream_thread.isRunning():
-            self.usb_stream_tab.stop_streaming()
-        else:
-            self.usb_stream_tab.start_streaming()
+    def on_render_tick(self):
+        """Renders current frame and updates preview & streamer."""
+        try:
+            cfg = self.config_mgr.config
+            img = self.renderer.render(cfg, self.current_metrics)
+            mode_id = cfg.get("current_mode", "custom")
+            
+            # Update virtual preview
+            self.lcd_preview.update_frame(img, mode_id)
 
-    def on_usb_streaming_toggled(self, is_streaming: bool):
-        """Updates GUI buttons and badges when streaming state changes."""
-        if is_streaming:
-            self.usb_stream_toggle_btn.setText("⏹ Zatrzymaj Strumieniowanie USB")
-            self.usb_stream_toggle_btn.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #dc2626, stop:1 #ef4444);
-                    color: #ffffff;
-                    font-weight: bold;
-                    font-size: 13px;
-                    padding: 10px;
-                    border-radius: 6px;
-                    border: 1px solid #f87171;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #b91c1c, stop:1 #dc2626);
-                }
-            """)
-            self.sb_usb_lbl.setText("⚡ USB Stream: 🟢 Aktywny (30 FPS)")
-            self.sb_usb_lbl.setStyleSheet("color: #10b981; font-weight: bold; margin-right: 10px;")
-        else:
-            self.usb_stream_toggle_btn.setText("🚀 Rozpocznij Strumieniowanie USB")
-            self.usb_stream_toggle_btn.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
-                    color: #ffffff;
-                    font-weight: bold;
-                    font-size: 13px;
-                    padding: 10px;
-                    border-radius: 6px;
-                    border: 1px solid #34d399;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
-                }
-            """)
-            self.sb_usb_lbl.setText("⚡ USB Stream: ⚪ Wyłączony")
-            self.sb_usb_lbl.setStyleSheet("color: #94a3b8; font-weight: bold; margin-right: 10px;")
+            # FPS counter
+            self.fps_frame_counter += 1
+            now = time.time()
+            if now - self.fps_timer_last >= 1.0:
+                fps = self.fps_frame_counter / (now - self.fps_timer_last)
+                self.lcd_preview.fps_lbl.setText(f"{fps:.0f} FPS")
+                self.fps_frame_counter = 0
+                self.fps_timer_last = now
 
-    def auto_start_usb_stream_if_available(self):
-        """Automatically starts USB live frame streaming if USB screen is detected."""
-        import glob
-        acm_ports = sorted(glob.glob('/dev/ttyACM*'))
-        if acm_ports:
-            port = acm_ports[0]
-            print(f"[MainWindow] Wykryto port USB ekranu {port}, uruchamianie strumieniowania...")
-            self.usb_stream_tab.port_combo.setCurrentText(port)
-            self.usb_stream_tab.start_streaming()
-
-    def on_live_sync_toggled(self, checked: bool):
-        if checked:
-            self.sync_timer.start(2000)
-            self.send_current_view_to_screen(silent=True)
-        else:
-            self.sync_timer.stop()
-
-    def on_sync_tick(self):
-        if not self.is_sending_frame:
-            self.send_current_view_to_screen(silent=True)
-
-    def send_current_view_to_screen(self, silent: bool = False):
-        """Sends current rendered frame or switches active mode on physical LCD screen over USB or Wi-Fi."""
-        if self.is_sending_frame:
-            return
-
-        current_frame = self.renderer.get_current_frame()
-        if not current_frame:
-            current_frame = self.renderer.render(self.config_mgr.config, self.current_metrics)
-
-        # Clone image to avoid race condition
-        frame_copy = current_frame.copy()
-
-        # If USB Streamer is connected or available, send directly via USB!
-        if self.usb_stream_ctrl.connected:
-            ok = self.usb_stream_ctrl.send_jpeg_frame(frame_copy)
-            if not silent:
-                if ok:
-                    self.push_to_screen_btn.setText("✅ Wysłano przez USB!")
-                else:
-                    self.push_to_screen_btn.setText("⚠️ Błąd wysyłania USB")
-                QTimer.singleShot(2500, lambda: self.push_to_screen_btn.setText("📡 Wyślij bieżącą klatkę na ekran (USB / Wi-Fi)"))
-            return
-
-        mode = self.config_mgr.get("current_mode", "custom")
-        screen_ip = self.config_mgr.get("screen_ip", "192.168.1.115")
-        self.http_ctrl.set_ip(screen_ip)
-
-        # Telemetry / PC Monitor mode over Wi-Fi
-        if mode in ("usage", "temperatures"):
-            def _worker_sysinfo():
-                self.is_sending_frame = True
-                pc_ip = self.config_mgr.get("pc_ip", "192.168.1.173")
-                ok, msg = self.http_ctrl.switch_to_sysinfo(pc_ip=pc_ip, port=self.config_mgr.get("tcp_port", 1648))
-                self.is_sending_frame = False
-                if not self.net_server.running:
-                    self.net_server.start()
-                if not silent:
-                    if ok:
-                        self.push_to_screen_btn.setText("✅ Przełączono na PC Monitor")
-                    else:
-                        self.push_to_screen_btn.setText("⚠️ Błąd połączenia")
-                    QTimer.singleShot(2500, lambda: self.push_to_screen_btn.setText("📡 Wyślij bieżącą klatkę na ekran (USB / Wi-Fi)"))
-            threading.Thread(target=_worker_sysinfo, daemon=True).start()
-            return
-
-        # Rendered Frame over Wi-Fi
-        def _worker_frame():
-            self.is_sending_frame = True
-            ok, msg = self.http_ctrl.upload_frame(frame_copy, filename="screen_live.jpg")
-            self.is_sending_frame = False
-            if not silent:
-                if ok:
-                    self.push_to_screen_btn.setText("✅ Wysłano na ekran (Wi-Fi)!")
-                else:
-                    self.push_to_screen_btn.setText("⚠️ Błąd wysyłania")
-                QTimer.singleShot(2500, lambda: self.push_to_screen_btn.setText("📡 Wyślij bieżącą klatkę na ekran (USB / Wi-Fi)"))
-
-        threading.Thread(target=_worker_frame, daemon=True).start()
+        except Exception as e:
+            print(f"[MainWindow] Render tick error: {e}")
 
     def on_metrics_tick(self):
-        """Periodic hardware poll."""
+        """Polls hardware sensors."""
         self.current_metrics = self.monitor.get_all_metrics()
-        self.system_tab.update_live_metrics(self.current_metrics)
+        
+        # Update system tab live gauges if present
+        if "usage" in self.panels:
+            self.panels["usage"].update_live_metrics(self.current_metrics)
 
-        # Update status bar
         cpu = self.current_metrics.get('cpu_percent', 0.0)
         ram = self.current_metrics.get('ram_percent', 0.0)
         gpu = self.current_metrics.get('gpu_percent', 0.0)
         cpu_t = self.current_metrics.get('cpu_temp', 0.0)
-        gpu_t = self.current_metrics.get('gpu_temp', 0.0)
-        nvme_t = self.current_metrics.get('nvme_temp', 0.0)
+        
+        self.sb_stats_lbl.setText(f"CPU: {cpu:.0f}% ({cpu_t:.0f}°C) | RAM: {ram:.0f}% | GPU: {gpu:.0f}%")
 
-        self.sb_stats_lbl.setText(
-            f"⚡ CPU: {cpu:.0f}% ({cpu_t:.0f}°C) | 💾 RAM: {ram:.0f}% | 🎮 GPU: {gpu:.0f}% ({gpu_t:.0f}°C) | 💿 NVMe: {nvme_t:.0f}°C"
-        )
-
-        if self.net_server.running:
-            client_count = len(self.net_server.clients)
-            self.sb_net_lbl.setText(f"🌐 TCP 1648 (Połączono: {client_count})")
-            self.sb_net_lbl.setStyleSheet("color: #10b981; font-weight: bold;")
+    def toggle_usb_streaming(self):
+        """Starts or stops the USB DMA streamer."""
+        if self.stream_thread and self.stream_thread.isRunning():
+            self.stop_usb_streaming()
         else:
-            self.sb_net_lbl.setText("🌐 TCP (Wyłączony)")
-            self.sb_net_lbl.setStyleSheet("color: #ef4444; font-weight: bold;")
+            self.start_usb_streaming()
 
-    def on_render_tick(self):
-        """Renders LCD screen frame and updates preview widget."""
-        frame = self.renderer.render(self.config_mgr.config, self.current_metrics)
-        mode_name = self.config_mgr.get("current_mode", "Custom").capitalize()
-        self.preview_widget.update_frame(frame, mode_name)
+    def start_usb_streaming(self):
+        port = self.port_combo.currentText()
+        if not port or not os.path.exists(port):
+            self.refresh_ports_list()
+            port = self.port_combo.currentText()
 
-        # FPS calculation
-        self.frame_count += 1
-        now = time.time()
-        if now - self.fps_last_time >= 1.0:
-            fps = self.frame_count / (now - self.fps_last_time)
-            self.preview_widget.fps_lbl.setText(f"{fps:.0f} FPS")
-            self.frame_count = 0
-            self.fps_last_time = now
+        if not port or not os.path.exists(port):
+            QMessageBox.warning(self, "Brak portu USB", f"Nie wykryto urządzenia USB pod adresem '{port}'.\nUpewnij się, że ekran jest podłączony kablem USB-C do komputera.")
+            return
 
-    def on_tray_activated(self, reason):
-        if reason == QSystemTrayIcon.Trigger:
-            if self.isVisible():
-                self.hide()
+        fps = self.fps_combo.currentData() or 30
+        quality = self.quality_combo.currentData() or 85
+
+        if self.stream_thread and self.stream_thread.isRunning():
+            self.stream_thread.stop()
+
+        self.stream_thread = USBStreamThread(
+            controller=self.usb_stream_ctrl,
+            renderer_callback=lambda: self.renderer.get_current_frame(),
+            fps=fps,
+            quality=quality,
+            port=port
+        )
+        self.stream_thread.stats_updated.connect(self.on_stream_stats_updated)
+        self.stream_thread.error_occurred.connect(self.on_stream_error)
+        self.stream_thread.start()
+
+        # Update UI buttons
+        self.stream_toggle_btn.setText("⏹ Zatrzymaj Strumieniowanie USB")
+        self.stream_toggle_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #dc2626, stop:1 #ef4444);
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 8px 16px;
+                border-radius: 6px;
+                border: 1px solid #f87171;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #b91c1c, stop:1 #dc2626);
+            }
+        """)
+        self.stream_status_pill.setText(f"🟢 USB Stream: {port} (Aktywny)")
+        self.stream_status_pill.setStyleSheet("color: #10b981; font-weight: bold; background: #0f172a; padding: 5px 10px; border-radius: 6px; border: 1px solid #10b981;")
+        self.sb_stream_lbl.setText(f"⚡ USB Streaming: 🟢 {fps} FPS")
+
+    def stop_usb_streaming(self):
+        if self.stream_thread:
+            self.stream_thread.stop()
+            self.stream_thread = None
+
+        self.usb_stream_ctrl.disconnect_usb()
+
+        self.stream_toggle_btn.setText("🚀 Rozpocznij Strumieniowanie USB")
+        self.stream_toggle_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 8px 16px;
+                border-radius: 6px;
+                border: 1px solid #34d399;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
+            }
+        """)
+        self.stream_status_pill.setText("⚪ USB Stream: Rozłączony")
+        self.stream_status_pill.setStyleSheet("color: #94a3b8; font-weight: bold; background: #0f172a; padding: 5px 10px; border-radius: 6px; border: 1px solid #1e293b;")
+        self.sb_stream_lbl.setText("⚡ USB Stream: ⚪ Rozłączony")
+
+    def auto_start_usb_streaming(self):
+        self.refresh_ports_list()
+        port = self.port_combo.currentText()
+        if port and os.path.exists(port):
+            self.start_usb_streaming()
+
+    def on_stream_stats_updated(self, fps: float, kbps: float):
+        self.stream_status_pill.setText(f"🟢 USB: {fps:.0f} FPS • {kbps:.0f} KB/s")
+
+    def on_stream_error(self, err: str):
+        self.sb_stream_lbl.setText(f"❌ USB Błąd: {err[:30]}")
+        self.stop_usb_streaming()
+
+    def on_brightness_changed(self, val: int):
+        self.config_mgr.set("brightness", val)
+        if self.usb_stream_ctrl.is_open:
+            self.usb_stream_ctrl.set_brightness(val)
+        else:
+            # Send brightness setting even if not streaming continuously
+            port = self.port_combo.currentText()
+            if port and os.path.exists(port):
+                self.usb_stream_ctrl.connect_usb(port)
+                self.usb_stream_ctrl.set_brightness(val)
+
+    def on_port_changed(self):
+        port = self.port_combo.currentText()
+        if port:
+            self.config_mgr.set("usb_stream_port", port)
+            self.usb_stream_ctrl.port = port
+            self.serial_ctrl.port = port
+
+    def on_stream_fps_changed(self):
+        fps = self.fps_combo.currentData() or 30
+        self.config_mgr.set("usb_stream_fps", fps)
+        if self.stream_thread:
+            self.stream_thread.set_target_fps(fps)
+
+    def on_stream_quality_changed(self):
+        q = self.quality_combo.currentData() or 85
+        self.config_mgr.set("usb_stream_quality", q)
+        if self.stream_thread:
+            self.stream_thread.set_quality(q)
+
+    def refresh_ports_list(self):
+        self.port_combo.blockSignals(True)
+        self.port_combo.clear()
+        acm_ports = sorted(glob.glob("/dev/ttyACM*"))
+        usb_ports = sorted(glob.glob("/dev/ttyUSB*"))
+        all_ports = acm_ports + usb_ports
+        for p in all_ports:
+            self.port_combo.addItem(p)
+        if not all_ports:
+            self.port_combo.addItem("/dev/ttyACM0")
+        
+        cur = self.config_mgr.get("usb_stream_port", "")
+        idx = self.port_combo.findText(cur)
+        if idx >= 0:
+            self.port_combo.setCurrentIndex(idx)
+        elif acm_ports:
+            # Pick highest ACM port by default
+            self.port_combo.setCurrentIndex(self.port_combo.findText(acm_ports[-1]))
+        else:
+            self.port_combo.setCurrentIndex(0)
+            
+        self.port_combo.blockSignals(False)
+        self.on_port_changed()
+
+    def send_usb_backtick_switch(self):
+        port = self.port_combo.currentText()
+        success, msg = self.serial_ctrl.switch_app(port=port)
+        if success:
+            self.statusBar().showMessage("✅ Wysłano sygnał przełączenia USB (`) do ekranu", 3000)
+        else:
+            self.statusBar().showMessage(f"❌ {msg}", 4000)
+
+    def open_flasher_dialog(self):
+        """Opens dedicated USB firmware flash dialog."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("⚡ Flasher Firmware ESP32-S3 (PlatformIO / USB)")
+        dialog.resize(520, 360)
+        d_layout = QVBoxLayout(dialog)
+
+        info = QLabel(
+            "<h3>Flasher Firmware USB Streamer (320x240 DMA)</h3>"
+            "<p>Wgraj lub zaktualizuj wsad PlatformIO na układzie ESP32-S3 modułu ekranu Skyloong GK104 Pro.</p>"
+            "<ul>"
+            "<li>Rozdzielczość: <b>320x240 ST7789 SPI DMA</b></li>"
+            "<li>Dekoder: <b>TJpgDec sprzętowy</b></li>"
+            "<li>Prędkość: <b>do 60 FPS przez USB CDC</b></li>"
+            "</ul>"
+        )
+        info.setTextFormat(Qt.RichText)
+        info.setWordWrap(True)
+        d_layout.addWidget(info)
+
+        flash_btn = QPushButton("⚡ Wgraj Firmware do modułu (1-Klik)")
+        flash_btn.setStyleSheet("background: #0284c7; color: white; font-weight: bold; font-size: 13px; padding: 10px;")
+        
+        status_lbl = QLabel("Gotowy do wgrania.")
+        status_lbl.setStyleSheet("color: #94a3b8;")
+
+        def do_flash():
+            flash_btn.setEnabled(False)
+            status_lbl.setText("Wgrywanie firmware przez esptool... Czekaj...")
+            
+            # Run flash script
+            flash_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "usb_stream_firmware", "flash_firmware.py")
+            import subprocess
+            res = subprocess.run([sys.executable, flash_script], capture_output=True, text=True)
+            flash_btn.setEnabled(True)
+            if res.returncode == 0:
+                status_lbl.setText("✅ Firmware pomyślnie wgrany!")
+                QMessageBox.information(dialog, "Sukces", "Firmware został pomyślnie wgrany do modułu ESP32-S3!\nEkran jest gotowy do streamingu.")
             else:
-                self.show_and_activate()
+                status_lbl.setText(f"❌ Błąd wgrywania: {res.stderr[:60]}")
+                QMessageBox.critical(dialog, "Błąd", f"Wgrywanie nie powiodło się:\n{res.stderr}")
 
-    def show_and_activate(self):
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        flash_btn.clicked.connect(do_flash)
+        d_layout.addWidget(flash_btn)
+        d_layout.addWidget(status_lbl)
+        d_layout.addStretch()
+
+        close_btn = QPushButton("Zamknij")
+        close_btn.clicked.connect(dialog.accept)
+        d_layout.addWidget(close_btn)
+
+        dialog.exec()
+
+    def setup_tray(self):
+        """Configures system tray icon."""
+        self.tray = QSystemTrayIcon(self)
+        self.tray.setIcon(self.windowIcon() if not self.windowIcon().isNull() else QIcon.fromTheme("video-display"))
+
+        tray_menu = QMenu()
+        show_action = QAction("Pokaż okno", self)
+        show_action.triggered.connect(self.showNormal)
+        tray_menu.addAction(show_action)
+
+        stream_action = QAction("Włącz / Wyłącz Stream USB", self)
+        stream_action.triggered.connect(self.toggle_usb_streaming)
+        tray_menu.addAction(stream_action)
+
+        tray_menu.addSeparator()
+
+        quit_action = QAction("Zakończ", self)
+        quit_action.triggered.connect(self.close_app)
+        tray_menu.addAction(quit_action)
+
+        self.tray.setContextMenu(tray_menu)
+        self.tray.show()
 
     def closeEvent(self, event):
-        """Minimize to tray on close."""
-        if self.tray_icon.isVisible():
-            self.hide()
-            event.ignore()
-        else:
-            self.close_application()
+        """Stop threads on window close."""
+        if self.stream_thread:
+            self.stream_thread.stop()
+        self.config_mgr.save()
+        event.accept()
 
-    def close_application(self):
-        self.usb_stream_tab.stop_streaming()
-        self.usb_stream_ctrl.disconnect_usb()
-        self.net_server.stop()
-        self.serial_ctrl.disconnect()
+    def close_app(self):
+        if self.stream_thread:
+            self.stream_thread.stop()
         self.config_mgr.save()
         sys.exit(0)

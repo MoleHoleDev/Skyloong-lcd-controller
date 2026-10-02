@@ -56,6 +56,7 @@ class USBStreamController(QObject):
         # Stats
         self.frames_sent = 0
         self.bytes_sent = 0
+        self.total_frames_sent = 0
         self.last_stat_time = time.time()
         self.fps = 0.0
         self.kbps = 0.0
@@ -63,6 +64,15 @@ class USBStreamController(QObject):
 
     def log(self, msg: str):
         self.log_message.emit(msg)
+
+    @property
+    def is_open(self) -> bool:
+        with self._lock:
+            return bool(self.connected and self.serial_conn and self.serial_conn.is_open)
+
+    @property
+    def ser(self):
+        return self.serial_conn
 
     def connect_usb(self, port: Optional[str] = None) -> Tuple[bool, str]:
         with self._lock:
@@ -128,7 +138,7 @@ class USBStreamController(QObject):
 
         # Encode JPEG in-memory
         buf = io.BytesIO()
-        pil_image.save(buf, format="JPEG", quality=quality, optimize=True)
+        pil_image.save(buf, format="JPEG", quality=quality, optimize=False)
         jpeg_data = buf.getvalue()
         jpeg_len = len(jpeg_data)
 
@@ -149,6 +159,7 @@ class USBStreamController(QObject):
 
                 if ack and ack[0] == USBProtocol.ACK:
                     self.frames_sent += 1
+                    self.total_frames_sent += 1
                     self.bytes_sent += len(packet)
                     self._update_stats()
                     return True
@@ -256,45 +267,82 @@ class USBStreamThread(QThread):
     """
     Dedicated worker thread to stream frames continuously from ScreenRenderer to USB screen.
     """
-    fps_report = Signal(float, float, float) # fps, kbps, latency_ms
+    fps_report = Signal(float, float, float)  # fps, kbps, latency_ms
+    stats_updated = Signal(float, float)      # fps, kbps
+    error_occurred = Signal(str)
+    status_changed = Signal(bool, str)
 
-    def __init__(self, controller: USBStreamController, renderer_callback, target_fps: int = 30, quality: int = 80):
+    def __init__(self, controller: USBStreamController, renderer_callback=None, fps: int = 30, quality: int = 85, port: Optional[str] = None):
         super().__init__()
         self.controller = controller
         self.renderer_callback = renderer_callback
-        self.target_fps = target_fps
-        self.quality = quality
+        self.target_fps = max(1, min(60, int(fps)))
+        self.quality = max(20, min(95, int(quality)))
+        self.port = port
         self.running = False
+        self._stats_connected = False
 
     def set_target_fps(self, fps: int):
-        self.target_fps = max(1, min(60, fps))
+        self.target_fps = max(1, min(60, int(fps)))
 
     def set_quality(self, quality: int):
-        self.quality = max(20, min(95, quality))
+        self.quality = max(20, min(95, int(quality)))
 
     def run(self):
         self.running = True
-        self.controller.stats_updated.connect(self._on_stats)
         
+        # Connect controller signals safely
+        try:
+            self.controller.stats_updated.connect(self._on_controller_stats)
+        except Exception:
+            pass
+
+        # Ensure USB connection is active
+        if not self.controller.is_open:
+            port_to_use = self.port or self.controller.port
+            ok, msg = self.controller.connect_usb(port_to_use)
+            if not ok:
+                self.error_occurred.emit(msg)
+                self.running = False
+                return
+
         while self.running:
             frame_start = time.perf_counter()
 
-            if self.controller.connected:
+            if self.controller.is_open:
                 try:
-                    img = self.renderer_callback()
+                    img = None
+                    if callable(self.renderer_callback):
+                        img = self.renderer_callback()
+                    elif hasattr(self.renderer_callback, 'get_current_frame'):
+                        img = self.renderer_callback.get_current_frame()
+
                     if img is not None:
-                        self.controller.send_jpeg_frame(img, quality=self.quality)
+                        ok = self.controller.send_jpeg_frame(img, quality=self.quality)
+                        if not ok and self.running:
+                            # Re-verify port if failed
+                            time.sleep(0.05)
                 except Exception as e:
+                    self.error_occurred.emit(str(e))
                     time.sleep(0.1)
+            else:
+                # Connection dropped, attempt reconnect
+                time.sleep(0.2)
+                if self.running:
+                    self.controller.connect_usb(self.port)
 
             elapsed = time.perf_counter() - frame_start
-            target_period = 1.0 / float(self.target_fps)
+            target_period = 1.0 / float(max(1, self.target_fps))
             sleep_time = target_period - elapsed
             if sleep_time > 0.001:
                 time.sleep(sleep_time)
 
-    def _on_stats(self, stats: dict):
-        self.fps_report.emit(stats.get("fps", 0.0), stats.get("kbps", 0.0), stats.get("latency_ms", 0.0))
+    def _on_controller_stats(self, stats: dict):
+        fps = stats.get("fps", 0.0)
+        kbps = stats.get("kbps", 0.0)
+        lat = stats.get("latency_ms", 0.0)
+        self.fps_report.emit(fps, kbps, lat)
+        self.stats_updated.emit(fps, kbps)
 
     def stop(self):
         self.running = False
